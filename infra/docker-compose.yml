@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: infra/dockerfiles/gateway.Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=development
+    depends_on:
+      - scoring
+
+  scoring:
+    image: python:3.11-slim
+    command: ["sleep", "infinity"]

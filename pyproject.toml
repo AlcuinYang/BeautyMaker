@@ -1,0 +1,35 @@
+[project]
+name = "aesthetics-engine"
+version = "0.1.0"
+description = "Modular AI aesthetics engine integrating image generation and aesthetic evaluation."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Aesthetic Engine Team" }
+]
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.6.0",
+    "pillow>=10.0.0",
+    "openai>=1.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.3.0"
+]
+
+[build-system]
+requires = ["setuptools>=65.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = [
+    "gateway",
+    "services",
+    "config",
+]

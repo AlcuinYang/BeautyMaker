@@ -1,0 +1,295 @@
+openapi: 3.1.0
+info:
+  title: Aesthetics Engine API
+  version: 0.1.0
+paths:
+  /v1/aesthetic:
+    post:
+      summary: Run generation and aesthetic evaluation pipeline.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateRequest"
+      responses:
+        "200":
+          description: Aggregated aesthetic response payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateResponse"
+  /v1/pipeline/text2image:
+    post:
+      summary: Run the text-to-image smart pipeline (multi-provider).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Text2ImagePipelineRequest"
+      responses:
+        "200":
+          description: Text-to-image pipeline result payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Text2ImagePipelineResponse"
+        "502":
+          description: Upstream provider failed
+        "500":
+          description: Pipeline execution error
+  /v1/pipeline/image2image:
+    post:
+      summary: Run the image-to-image marketing pipeline.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Image2ImagePipelineRequest"
+      responses:
+        "200":
+          description: Image-to-image pipeline result payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Image2ImagePipelineResponse"
+        "502":
+          description: Upstream provider failed
+        "500":
+          description: Pipeline execution error
+components:
+  schemas:
+    EnhancementOptions:
+      type: object
+      properties:
+        apply_clarity:
+          type: boolean
+    GenerateRequest:
+      type: object
+      properties:
+        task:
+          type: string
+          enum: ["text2image", "image2image"]
+        prompt:
+          type: string
+        provider:
+          type: string
+        size:
+          type: string
+          example: "512x512"
+        use_modules:
+          type: array
+          items:
+            type: string
+        params:
+          type: object
+          additionalProperties: true
+        enhancement:
+          $ref: "#/components/schemas/EnhancementOptions"
+      required:
+        - task
+        - prompt
+        - provider
+    GenerateResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: ["success", "error"]
+        task_id:
+          type: string
+          format: uuid
+        image_url:
+          type: string
+          format: uri
+        modules_used:
+          type: array
+          items:
+            type: string
+        scores:
+          type: object
+          additionalProperties:
+            type: number
+        composite_score:
+          type: number
+        best_candidate:
+          type: string
+          format: uri
+      required:
+        - status
+        - task_id
+    Text2ImagePipelineParams:
+      type: object
+      properties:
+        ratio:
+          type: string
+          example: "1:1"
+        expand_prompt:
+          type: boolean
+        modules:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    Text2ImagePipelineRequest:
+      type: object
+      properties:
+        prompt:
+          type: string
+        providers:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          example: ["qwen", "pollinations"]
+        num_candidates:
+          type: integer
+          minimum: 1
+          maximum: 6
+          default: 3
+        params:
+          $ref: "#/components/schemas/Text2ImagePipelineParams"
+      required:
+        - prompt
+        - providers
+    PipelineCandidate:
+      type: object
+      properties:
+        image_url:
+          type: string
+          nullable: true
+        composite_score:
+          type: number
+          nullable: true
+        scores:
+          type: object
+          additionalProperties:
+            type: number
+        provider:
+          type: string
+          description: Identifier of the model that produced the candidate
+      additionalProperties: false
+    Text2ImagePipelineResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: ["success", "failed"]
+        task_id:
+          type: string
+        best_image_url:
+          type: string
+          nullable: true
+        best_composite_score:
+          type: number
+          nullable: true
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/PipelineCandidate"
+        summary:
+          type: string
+        prompt:
+          type: object
+          properties:
+            original:
+              type: string
+            applied:
+              type: string
+            expanded:
+              type: string
+              nullable: true
+            expansion_suffix:
+              type: string
+              nullable: true
+        providers_used:
+          type: array
+          items:
+            type: string
+    Image2ImagePipelineRequest:
+      type: object
+      properties:
+        prompt:
+          type: string
+        reference_images:
+          type: array
+          items:
+            type: string
+        providers:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        size:
+          type: string
+          pattern: "^[0-9]+x[0-9]+$"
+        params:
+          type: object
+          properties:
+            modules:
+              type: array
+              items:
+                type: string
+            image_size:
+              type: string
+              pattern: "^[0-9]+x[0-9]+$"
+            num_variations:
+              type: integer
+              minimum: 1
+              maximum: 3
+      required:
+        - prompt
+        - reference_images
+        - providers
+    ImageComposeResultItem:
+      type: object
+      properties:
+        provider:
+          type: string
+        image_url:
+          type: string
+        scores:
+          type: object
+          additionalProperties:
+            type: number
+        composite_score:
+          type: number
+          nullable: true
+        verification:
+          type: object
+          nullable: true
+          additionalProperties: true
+    Image2ImagePipelineResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        task_id:
+          type: string
+        best_image_url:
+          type: string
+          nullable: true
+        best_provider:
+          type: string
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImageComposeResultItem"
+        reference_images:
+          type: array
+          items:
+            type: string
+        image_size:
+          type: string
+          pattern: "^[0-9]+x[0-9]+$"
+        providers_used:
+          type: array
+          items:
+            type: string
+        message:
+          type: string
+      required:
+        - status
