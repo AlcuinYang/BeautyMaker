@@ -1,6 +1,6 @@
 # AestheticsEngine 快速启动
 
-几分钟内把后端接口和前端工作台跑起来，默认用免费的 Pollinations 生成 + 内置评分模块，无需 API Key 即可验证。
+几分钟内把后端接口和前端工作台跑起来，默认用 Doubao Seedream 占位返回 + 内置评分模块，即便没有 API Key 也能跑通流程。
 
 ## 环境准备
 - Python 3.10+，`pip` 与 `uvicorn` 会随依赖安装
@@ -32,15 +32,15 @@ VITE_AE_API="http://127.0.0.1:8000" npm run dev -- --host --port 5173
 浏览：`http://127.0.0.1:5173`
 
 ## 10 秒验证
-后端跑起来后直接调用智能文生图管线（使用 Pollinations，免密钥）：
+后端跑起来后直接调用智能文生图管线（使用 Doubao Seedream，无密钥则返回占位图便于验证链路）：
 ```bash
 curl -X POST http://127.0.0.1:8000/v1/pipeline/text2image \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "a cozy japanese coffee shop interior, soft light",
-    "providers": ["pollinations"],
+    "providers": ["doubao_seedream"],
     "num_candidates": 1,
     "params": {"ratio": "1:1"}
   }'
 ```
-返回的 `best_image_url`/`candidates[*].url` 为 `data:` 开头的 Base64 图片，直接在浏览器打开即可。
+在未配置密钥时，返回的 `best_image_url`/`candidates[*].url` 为 `data:` 开头的透明占位图；配置密钥后会返回真实图片。

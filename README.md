@@ -4,7 +4,7 @@
 
 **AI-Powered Aesthetic Evaluation & Multi-Provider Image Generation Engine**
 
-**集成 13+ 图像生成提供商的智能美学评估引擎**
+**集成图像生成提供商的智能美学评估引擎**
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg)](https://fastapi.tiangolo.com/)
@@ -35,7 +35,7 @@ BeautyMaker（美学引擎）是一个**模块化的 AI 美学评估和图像生
 
 - **🚀 13+ 图像生成提供商**：一个接口，调用多个主流 AI 图像生成服务
   - 通义千问（Qwen）、豆包 Seedream、OpenAI DALL·E、Gemini Flash
-  - Pollinations（免费无需 API 密钥）、HuggingFace、Stability AI 等
+  - HuggingFace、Stability AI 等
 
 - **⚡ 智能管线系统**
   - **文生图管线**：多模型并行生成 → 美学评分 → 自动选优
@@ -138,7 +138,7 @@ POST /v1/pipeline/text2image
 ```json
 {
   "prompt": "一只猫骑着自行车，梵高风格",
-  "providers": ["qwen", "doubao_seedream", "pollinations"],
+  "providers": ["qwen", "doubao_seedream"],
   "num_candidates": 3,
   "params": {
     "ratio": "16:9"
@@ -376,7 +376,7 @@ Example:
 ```json
 {
   "prompt": "A cat riding a bicycle, Van Gogh style",
-  "providers": ["qwen", "doubao_seedream", "pollinations"],
+  "providers": ["qwen", "doubao_seedream"],
   "num_candidates": 3,
   "params": {
     "ratio": "16:9"

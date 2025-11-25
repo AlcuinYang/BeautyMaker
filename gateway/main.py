@@ -20,11 +20,6 @@ from services.pipeline import (
     run_image2image_pipeline,
 )
 from services.proxy.proxy_base import router as proxy_router
-import os
-
-
-print("DASHSCOPE_API_KEY (start):", os.getenv("DASHSCOPE_API_KEY"))
-
 
 logging.basicConfig(
     level=logging.INFO,

@@ -1,14 +1,6 @@
 """静态 Provider 元数据，供 /api/providers 返回使用。"""
 
 PROVIDER_META = {
-    "pollinations": {
-        "display_name": "Pollinations (Free)",
-        "description": "Free text-to-image API for quick generation.",
-        "category": "image_generation",
-        "is_free": True,
-        "icon": "/icons/pollinations.svg",
-        "endpoint": "https://pollinations.ai/",
-    },
     "huggingface": {
         "display_name": "Hugging Face Inference",
         "description": "Run any model via HuggingFace Inference API.",

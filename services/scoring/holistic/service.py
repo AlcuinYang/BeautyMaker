@@ -150,11 +150,15 @@ class HolisticScoreService(ScoreService):
     def _clamp_score(self, value: float) -> float:
         if value < 0.0:
             return 0.0
-        if value > 1.0:
-            if value <= 10.0:
-                value = value / 10.0
-            elif value <= 100.0:
-                value = value / 100.0
-            else:
-                value = 1.0
-        return round(value, 3)
+
+        # MNet 默认返回 0-1，小数过低时在视觉上显得过小。
+        # 这里将其线性放大到 1-10 区间后再归一化回 0-1，避免兜底分显著低于豆包分。
+        if value <= 1.0:
+            boosted = 1.0 + max(0.0, min(1.0, value)) * 9.0  # 0 -> 1，1 -> 10
+            return round(boosted / 10.0, 3)
+
+        if value <= 10.0:
+            return round(value / 10.0, 3)
+        if value <= 100.0:
+            return round(value / 100.0, 3)
+        return 1.0

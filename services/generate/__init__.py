@@ -9,13 +9,11 @@ from services.generate.adapters.lab_aesthetic_score import (
 )
 from services.generate.adapters.lab_image_enhance import LabImageEnhanceProvider
 from services.generate.adapters.nano_banana import NanoBananaProvider
-from services.generate.adapters.pollinations import PollinationsProvider
 from services.generate.adapters.qwen import QwenProvider
 from services.generate.adapters.stability_free import StabilityFreeProvider
 from services.generate.adapters.stable_diffusion import StableDiffusionProvider
 
 _REGISTRY = {
-    PollinationsProvider.name: PollinationsProvider(),
     QwenProvider.name: QwenProvider(),
     HuggingFaceProvider.name: HuggingFaceProvider(),
     StabilityFreeProvider.name: StabilityFreeProvider(),

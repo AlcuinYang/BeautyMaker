@@ -12,7 +12,7 @@ async def test_text2image_pipeline_returns_success():
             "/v1/pipeline/text2image",
             json={
                 "prompt": "清晨薄雾中的城市天际线",
-                "providers": ["pollinations"],
+                "providers": ["doubao_seedream"],
                 "num_candidates": 2,
                 "params": {
                     "ratio": "1:1",

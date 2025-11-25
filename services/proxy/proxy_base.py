@@ -4,7 +4,6 @@ import json
 import logging
 import os
 from typing import Any, Dict, Optional
-from urllib.parse import quote_plus
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -53,10 +52,6 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         "env_key": "DASHSCOPE_API_KEY",
         "response_type": "json",
     },
-    "pollinations": {
-        "default_endpoint": "https://pollinations.ai/prompt",
-        "response_type": "image",
-    },
 }
 
 # Default timeout (seconds) for outbound calls.
@@ -72,21 +67,6 @@ def _resolve_endpoint(provider: str, endpoint: Optional[str], payload: Dict[str,
         raise HTTPException(status_code=400, detail="unknown_provider")
 
     base = config.get("default_endpoint")
-    if provider == "pollinations":
-        prompt = payload.get("prompt")
-        if not prompt:
-            raise HTTPException(status_code=400, detail="prompt_required_for_pollinations")
-        prompt_encoded = quote_plus(prompt)
-        params = {
-            "model": payload.get("model", "flux"),
-            "width": payload.get("width", 1024),
-            "height": payload.get("height", 1024),
-            "seed": payload.get("seed"),
-            "referrer": payload.get("referrer", "proxy.aesthetic-engine"),
-        }
-        query = httpx.QueryParams({k: v for k, v in params.items() if v is not None}).to_str()
-        return f"{base}/{prompt_encoded}?{query}" if query else f"{base}/{prompt_encoded}"
-
     if provider == "qwen":
         # If the incoming payload already includes the DashScope request body, use
         # the default endpoint; no special URL rewriting needed.

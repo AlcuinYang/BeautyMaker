@@ -13,7 +13,7 @@ async def test_generate_endpoint_returns_success():
             json={
                 "task": "text2image",
                 "prompt": "一只猫骑着自行车",
-                "provider": "pollinations",
+                "provider": "doubao_seedream",
                 "size": "512x512",
                 "use_modules": [
                     "holistic",
