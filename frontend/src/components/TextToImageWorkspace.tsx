@@ -11,7 +11,7 @@ export function TextToImageWorkspace() {
   const [providersLoading, setProvidersLoading] = useState(true);
   const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
 
-  const [prompt, setPrompt] = useState("薄雾清晨中的未来城市，阳光穿透玻璃穹顶");
+  const [prompt, setPrompt] = useState("星际穿越，黑洞，黑洞里冲出一辆快支离破碎的复古列车，抢视觉冲击力，电影大片，末日既视感，动感，对比色，oc渲染，光线追踪，动态模糊，景深，超现实主义，深蓝，画面通过细腻的丰富的色彩层次塑造主体与场景，质感真实，暗黑风背景的光影效果营造出氛围，整体兼具艺术幻想感，夸张的广角透视效果，耀光，反射，极致的光影，强引力，吞噬");
   const [numCandidates, setNumCandidates] = useState(3);
   const [ratio, setRatio] = useState("1:1");
   const [formError, setFormError] = useState<string | null>(null);

@@ -59,11 +59,14 @@ class Text2ImagePipelineRequest(BaseModel):
 
     providers: one or more provider ids; the legacy ``provider`` field is
     kept for backward compatibility and folded into ``providers``.
+    reference_images: optional list of reference image URLs or base64 strings
+    to guide generation (supported by Seedream 4.0, Wanx i2i).
     """
     prompt: str
     providers: List[str] = Field(default_factory=list, min_length=1, max_length=4)
     provider: Optional[str] = Field(default=None, exclude=True)
     num_candidates: int = Field(default=3, ge=1, le=6)
+    reference_images: Optional[List[str]] = Field(default=None, max_length=10)
     params: PipelineParams = Field(default_factory=PipelineParams)
 
     @model_validator(mode="after")
@@ -95,6 +98,7 @@ async def run_text2image_pipeline(payload: Text2ImagePipelineRequest) -> Dict[st
             size=_ratio_to_size(payload.params.ratio),
             params={"ratio": payload.params.ratio},
             num_candidates=payload.num_candidates,
+            reference_images=payload.reference_images,
         )
 
         if not candidates:
@@ -151,21 +155,33 @@ async def _generate_candidates(
     size: str,
     params: Dict[str, Any],
     num_candidates: int,
+    reference_images: Optional[List[str]] = None,
 ) -> List[GeneratedImage]:
     """Generate candidates in parallel across providers and n-variations.
 
     Returns a uniform list of ``GeneratedImage`` items that include provider
     name, url and basic metadata, filtering out failed tasks.
+
+    If reference_images is provided, automatically switches to image2image task
+    for providers that support it (Seedream 4.0, Wanx i2i).
     """
     async def _generate_single(provider_id: str) -> GeneratedImage:
         provider = get_provider(provider_id)
 
+        # Automatically determine task type based on reference images
+        task = "image2image" if reference_images else "text2image"
+
+        # Merge reference_images into params
+        generation_params = {**params}
+        if reference_images:
+            generation_params["reference_images"] = reference_images
+
         request_payload = GenerateRequestPayload(
-            task="text2image",
+            task=task,
             prompt=prompt,
             provider=provider.name,
             size=size,
-            params=params,
+            params=generation_params,
         )
         result = await provider.generate(request_payload)
         image_urls = _ensure_list(result.get("images"))
