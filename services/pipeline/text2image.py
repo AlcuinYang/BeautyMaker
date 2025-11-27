@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from uuid import UUID, uuid4
 
@@ -26,11 +27,14 @@ from pydantic import BaseModel, Field, model_validator
 from services.common.models import GeneratedImage
 from services.generate import get_provider
 from services.generate.models import GenerateRequestPayload
-from services.scoring.aggregator import AggregationResult, ScoringAggregator
+from services.scoring.aggregator import AggregationResult, ImageEvaluation, ScoringAggregator
+from services.scoring.holistic.doubao_client import DoubaoAestheticClient
 from services.selector.service import SelectorService
 
 logger = logging.getLogger(__name__)
 
+
+DEFAULT_PROVIDERS: Sequence[str] = ("doubao_seedream",)
 
 DEFAULT_MODULES = [
     "holistic",
@@ -75,12 +79,100 @@ class Text2ImagePipelineRequest(BaseModel):
             if self.provider:
                 self.providers = [self.provider]
             else:
-                raise ValueError("至少需要选择一个模型进行生成。")
+                self.providers = list(DEFAULT_PROVIDERS)
         self.providers = [provider for provider in self.providers if provider]
         if not self.providers:
             raise ValueError("提供的模型标识不可为空。")
         return self
 
+
+class ComparativeReview(BaseModel):
+    """Comparative review explaining why the best image won."""
+    title: str = Field(description="Short title explaining the winning reason (4-8 Chinese characters)")
+    analysis: str = Field(description="Detailed comparative analysis (~100 Chinese characters)")
+    key_difference: str = Field(description="1-2 key difference keywords")
+
+
+class Text2ImagePipelineResponse(BaseModel):
+    """Response model for the text2image pipeline.
+
+    Includes the best image, scores, candidates, and optionally a comparative review
+    explaining why the best image was selected over the lowest-scoring one.
+    """
+    status: str = Field(description="Execution status: 'success' or 'failed'")
+    task_id: str = Field(description="Unique task identifier")
+    best_image_url: Optional[str] = Field(default=None, description="URL of the selected best image")
+    best_composite_score: Optional[float] = Field(default=None, description="Composite aesthetic score (0-1)")
+    candidates: List[Dict[str, Any]] = Field(default_factory=list, description="All candidate images with scores")
+    summary: Optional[str] = Field(default=None, description="Summary of the best image's aesthetic qualities")
+    prompt: Optional[Dict[str, Any]] = Field(default=None, description="Prompt details (original, applied, expanded)")
+    providers_used: List[str] = Field(default_factory=list, description="Provider IDs used in generation")
+    review: Optional[ComparativeReview] = Field(
+        default=None,
+        description="Comparative review explaining why the best image won (only when multiple candidates exist)"
+    )
+    message: Optional[str] = Field(default=None, description="Error message if status is 'failed'")
+
+
+async def _generate_comparative_review(
+    *,
+    best_image: GeneratedImage,
+    best_eval: ImageEvaluation,
+    loser_image: GeneratedImage,
+    loser_eval: ImageEvaluation,
+    doubao_client: DoubaoAestheticClient,
+    best_label: str,
+    loser_label: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Generate a comparative review explaining why the best image won using AIGC-native metrics.
+    """
+    def fmt(score: Optional[float]) -> str:
+        """Format score to 1 decimal place on 0-10 scale."""
+        return f"{(score or 0) * 10:.1f}"
+
+    # Use AIGC-Native labels mapped to internal keys
+    user_prompt = f"""
+请作为 AIGC 质量质检专家，对比分析以下两张生成图片:
+
+【{best_label}（优胜图）】
+- 综合评分：{fmt(best_eval.composite_score)}/10
+- 结构合理性(手/脸)：{fmt(best_eval.module_scores.get('clarity_eval'))}/10
+- 语义忠实度：{fmt(best_eval.module_scores.get('quality_score'))}/10
+- 物理逻辑(光影/透视)：{fmt(best_eval.module_scores.get('contrast_score'))}/10
+- 画面纯净度：{fmt(best_eval.module_scores.get('noise_eval'))}/10
+
+【{loser_label}（参照图）】
+- 综合评分：{fmt(loser_eval.composite_score)}/10
+- 结构合理性(手/脸)：{fmt(loser_eval.module_scores.get('clarity_eval'))}/10
+- 语义忠实度：{fmt(loser_eval.module_scores.get('quality_score'))}/10
+- 物理逻辑(光影/透视)：{fmt(loser_eval.module_scores.get('contrast_score'))}/10
+- 画面纯净度：{fmt(loser_eval.module_scores.get('noise_eval'))}/10
+
+【任务要求】
+请根据上述评分差异，生成一段约 100 字的【对比点评】。
+1. **归因分析**：直接指出图片 A 在哪些维度胜出。**重点关注结构合理性**（如：优胜图手指结构完整，而参照图出现了肢体扭曲）。
+2. **缺陷指出**：明确指出图片 B 的主要 AIGC 瑕疵（如：伪影、逻辑错误、语义缺失）。
+3. **总结**：一句话总结 A 的获胜理由。
+
+【输出格式】
+严格 JSON：
+{{
+    "title": "胜出理由：[4-8字短标题]",
+    "analysis": "[对比分析内容]",
+    "key_difference": "[1-2个核心差异点关键词]"
+}}
+"""
+
+    try:
+        result = await doubao_client.compare_images(
+            image_urls=[best_image.url, loser_image.url],
+            prompt=user_prompt
+        )
+        return result
+    except Exception as e:
+        logger.warning("Failed to generate comparative review: %s", e)
+        return None
 
 async def run_text2image_pipeline(payload: Text2ImagePipelineRequest) -> Dict[str, Any]:
     """High-level entry that runs the full t2i orchestration."""
@@ -116,6 +208,40 @@ async def run_text2image_pipeline(payload: Text2ImagePipelineRequest) -> Dict[st
 
         best_evaluation = aggregation.image_results.get(best_image.url) if aggregation else None
 
+        # Generate comparative review if we have multiple candidates
+        review = None
+        if aggregation and len(candidates) > 1:
+            # Find the loser (lowest composite score)
+            loser_image = None
+            loser_eval = None
+            min_score = float('inf')
+
+            for candidate in candidates:
+                if candidate.url == best_image.url:
+                    continue
+                eval_result = aggregation.image_results.get(candidate.url)
+                if eval_result and eval_result.composite_score < min_score:
+                    min_score = eval_result.composite_score
+                    loser_image = candidate
+                    loser_eval = eval_result
+
+            # Generate review if we have both winner and loser
+            if loser_image and loser_eval and best_evaluation:
+                doubao_client = DoubaoAestheticClient()
+                best_idx = next((idx for idx, img in enumerate(candidates) if img.url == best_image.url), -1)
+                loser_idx = next((idx for idx, img in enumerate(candidates) if img.url == loser_image.url), -1)
+                best_label = f"候选{best_idx + 1}" if best_idx >= 0 else "候选A"
+                loser_label = f"候选{loser_idx + 1}" if loser_idx >= 0 else "候选B"
+                review = await _generate_comparative_review(
+                    best_image=best_image,
+                    best_eval=best_evaluation,
+                    loser_image=loser_image,
+                    loser_eval=loser_eval,
+                    doubao_client=doubao_client,
+                    best_label=best_label,
+                    loser_label=loser_label,
+                )
+
         response = {
             "status": "success",
             "task_id": str(task_id),
@@ -131,6 +257,10 @@ async def run_text2image_pipeline(payload: Text2ImagePipelineRequest) -> Dict[st
             },
             "providers_used": sorted({image.provider for image in candidates}),
         }
+
+        # Add review if available
+        if review:
+            response["review"] = review
 
         return response
 
@@ -165,38 +295,81 @@ async def _generate_candidates(
     If reference_images is provided, automatically switches to image2image task
     for providers that support it (Seedream 4.0, Wanx i2i).
     """
+    provider_limits: Dict[str, asyncio.Semaphore] = {
+        name: asyncio.Semaphore(1) for name in set(provider_names)
+    }
+
+    async def _run_with_retry(
+        *,
+        provider_label: str,
+        semaphore: asyncio.Semaphore,
+        runner,
+    ) -> GeneratedImage:
+        delays = [0.3, 0.8, 1.5]
+        last_error: Optional[Exception] = None
+        for attempt, delay in enumerate(delays, start=1):
+            try:
+                async with semaphore:
+                    # Small spacing to avoid bursting provider rate limits
+                    await asyncio.sleep(0.1 + random.uniform(0, 0.1))
+                    return await runner()
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                should_retry = _is_retryable_generation_error(exc)
+                if attempt < len(delays) and should_retry:
+                    backoff = delay + random.uniform(0, 0.2)
+                    logger.warning(
+                        "生成候选重试(provider=%s attempt=%s/%s): %s，%.2fs 后再试",
+                        provider_label,
+                        attempt,
+                        len(delays),
+                        exc,
+                        backoff,
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
+                raise
+        assert last_error  # for type checkers
+        raise last_error
+
     async def _generate_single(provider_id: str) -> GeneratedImage:
         provider = get_provider(provider_id)
-
-        # Automatically determine task type based on reference images
         task = "image2image" if reference_images else "text2image"
+        semaphore = provider_limits[provider_id]
 
         # Merge reference_images into params
         generation_params = {**params}
         if reference_images:
             generation_params["reference_images"] = reference_images
 
-        request_payload = GenerateRequestPayload(
-            task=task,
-            prompt=prompt,
-            provider=provider.name,
-            size=size,
-            params=generation_params,
-        )
-        result = await provider.generate(request_payload)
-        image_urls = _ensure_list(result.get("images"))
-        if result.get("image_url"):
-            image_urls.append(result["image_url"])
+        async def _execute() -> GeneratedImage:
+            request_payload = GenerateRequestPayload(
+                task=task,
+                prompt=prompt,
+                provider=provider.name,
+                size=size,
+                params=generation_params,
+            )
+            result = await provider.generate(request_payload)
+            image_urls = _ensure_list(result.get("images"))
+            if result.get("image_url"):
+                image_urls.append(result["image_url"])
 
-        image_urls = [url for url in image_urls if isinstance(url, str) and url]
-        if not image_urls:
-            raise RuntimeError("提供方未返回有效的图片地址")
+            image_urls = [url for url in image_urls if isinstance(url, str) and url]
+            if not image_urls:
+                raise RuntimeError("提供方未返回有效的图片地址")
 
-        return GeneratedImage(
-            url=image_urls[0],
-            provider=provider.name,
-            prompt=prompt,
-            metadata=result.get("metadata", {}),
+            return GeneratedImage(
+                url=image_urls[0],
+                provider=provider.name,
+                prompt=prompt,
+                metadata=result.get("metadata", {}),
+            )
+
+        return await _run_with_retry(
+            provider_label=provider.name,
+            semaphore=semaphore,
+            runner=_execute,
         )
 
     tasks: List[asyncio.Task[GeneratedImage]] = []
@@ -268,12 +441,12 @@ def _serialize_candidates(
 
 
 LABEL_MAP_FOR_SUMMARY = {
-    "color_score": "光色表现",
-    "contrast_score": "构图表达",
-    "clarity_eval": "清晰完整度",
-    "noise_eval": "风格协调性",
-    "quality_score": "情绪感染力",
-    "holistic": "综合美感",
+    "color_score": "艺术美感",
+    "contrast_score": "物理逻辑",
+    "clarity_eval": "结构合理性",  # Critical mapping change
+    "noise_eval": "画面纯净度",
+    "quality_score": "语义忠实度",
+    "holistic": "综合评分",
 }
 
 
@@ -328,6 +501,23 @@ def _ratio_to_size(ratio: str) -> str:
         "16:9": "2560x1440",
     }
     return mapping.get(ratio, "2048x2048")
+
+
+def _is_retryable_generation_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    retry_signals = [
+        "throttling",
+        "rate limit",
+        "ratequota",
+        "too many requests",
+        "timeout",
+        "timed out",
+        "temporarily unavailable",
+        "server busy",
+        "429",
+        "connection reset",
+    ]
+    return any(signal in message for signal in retry_signals)
 
 
 def _ensure_list(value) -> List[Any]:

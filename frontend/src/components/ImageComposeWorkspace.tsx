@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, DragEvent } from "react";
 import { motion } from "framer-motion";
 import { api } from "../lib/api";
 import type { ImageComposeResponse, ImageComposeResultItem, ProviderInfo } from "../types";
@@ -23,7 +23,7 @@ const RATIO_SIZE_MAP = RATIO_OPTIONS.reduce<Record<string, string>>((acc, item) 
 
 const DEFAULT_RATIO = "1:1";
 
-const PROVIDER_WHITELIST = new Set(["qwen", "doubao_seedream", "dalle", "nano_banana"]);
+const PROVIDER_WHITELIST = new Set(["qwen", "wan", "doubao_seedream", "nano_banana"]);
 
 type ToolKey = "ratio" | "model" | "count";
 
@@ -212,12 +212,14 @@ export function ImageComposeWorkspace() {
     handleGenerate();
   };
 
-  const handleReferenceUpload = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const inputEl = event.target;
-      const files = Array.from(inputEl.files ?? []);
-      if (files.length === 0) {
-        return;
+  const processReferenceFiles = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      const allowedTypes = new Set(["image/png", "image/jpeg"]);
+      const invalid = files.find((file) => !allowedTypes.has(file.type));
+      if (invalid) {
+        setFormError("仅支持上传 PNG 或 JPEG 图片，请重新选择。");
+        return false;
       }
       const MAX_SINGLE_SIZE = 10 * 1024 * 1024;
       const MAX_TOTAL_SIZE = 64 * 1024 * 1024;
@@ -225,15 +227,15 @@ export function ImageComposeWorkspace() {
       const oversize = files.find((file) => file.size > MAX_SINGLE_SIZE);
       if (oversize) {
         setFormError(`图片 ${oversize.name} 超过 10MB 限制，请压缩后重新上传。`);
-        inputEl.value = "";
-        return;
+        return false;
       }
 
-      const totalSize = referenceImageSizes.reduce((acc, cur) => acc + cur, 0) + files.reduce((acc, file) => acc + file.size, 0);
+      const totalSize =
+        referenceImageSizes.reduce((acc, cur) => acc + cur, 0) +
+        files.reduce((acc, file) => acc + file.size, 0);
       if (totalSize > MAX_TOTAL_SIZE) {
         setFormError("所有参考图总大小不可超过 64MB，请删除部分图片后重试。");
-        inputEl.value = "";
-        return;
+        return false;
       }
 
       const readers = files.map(
@@ -261,12 +263,34 @@ export function ImageComposeWorkspace() {
         .catch((err) => {
           console.warn("读取参考图片失败", err);
           setFormError("读取参考图片失败，请重试。");
-        })
-        .finally(() => {
-          inputEl.value = "";
         });
+      return true;
     },
     [referenceImageSizes],
+  );
+
+  const handleReferenceUpload = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const inputEl = event.target;
+      const files = Array.from(inputEl.files ?? []);
+      const ok = processReferenceFiles(files);
+      if (!ok) {
+        inputEl.value = "";
+        return;
+      }
+      inputEl.value = "";
+    },
+    [processReferenceFiles],
+  );
+
+  const handleReferenceDrop = useCallback(
+    (event: React.DragEvent<HTMLLabelElement>) => {
+      event.preventDefault();
+      if (isRunning) return;
+      const files = Array.from(event.dataTransfer.files || []);
+      processReferenceFiles(files);
+    },
+    [isRunning, processReferenceFiles],
   );
 
   const handleReferenceRemove = useCallback((index: number) => {
@@ -376,7 +400,13 @@ export function ImageComposeWorkspace() {
                       </button>
                     </div>
                   ))}
-                  <label className="pointer-events-auto flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-white/15 bg-black/30 text-slate-400 transition hover:border-emerald-400/60 hover:text-emerald-200">
+                  <label
+                    className="pointer-events-auto flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-white/15 bg-black/30 text-slate-400 transition hover:border-emerald-400/60 hover:text-emerald-200"
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                    }}
+                    onDrop={handleReferenceDrop}
+                  >
                     <input
                       type="file"
                       accept="image/*"

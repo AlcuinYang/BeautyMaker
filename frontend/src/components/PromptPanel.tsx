@@ -6,9 +6,10 @@ import type { ProviderInfo } from "../types";
 interface PromptPanelProps {
   prompt: string;
   onPromptChange: (value: string) => void;
-  referenceImage: string | null;
+  referenceImages: string[];
   onReferenceUpload: (file: File) => void;
-  onReferenceRemove: () => void;
+  onReferenceDrop?: (files: File[]) => void;
+  onReferenceRemove: (index: number) => void;
   numCandidates: number;
   onNumCandidatesChange: (value: number) => void;
   ratio: string;
@@ -36,7 +37,7 @@ type ToolKey = "ratio" | "providers" | "count";
 export function PromptPanel({
   prompt,
   onPromptChange,
-  referenceImage,
+  referenceImages,
   onReferenceUpload,
   onReferenceRemove,
   numCandidates,
@@ -51,6 +52,7 @@ export function PromptPanel({
   onRemoveProvider,
   onSubmit,
   disabled,
+  onReferenceDrop,
 }: PromptPanelProps) {
   const decrement = () => onNumCandidatesChange(Math.max(1, numCandidates - 1));
   const increment = () => onNumCandidatesChange(Math.min(6, numCandidates + 1));
@@ -96,40 +98,61 @@ export function PromptPanel({
           <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
             提示词
           </span>
-          <div className="relative">
+          <div
+            className="relative"
+            onDragOver={(event) => {
+              if (disabled) return;
+              event.preventDefault();
+            }}
+            onDrop={(event) => {
+              if (disabled) return;
+              event.preventDefault();
+              const files = Array.from(event.dataTransfer.files || []);
+              if (files.length && onReferenceDrop) {
+                onReferenceDrop(files);
+              }
+            }}
+          >
             <textarea
               value={prompt}
               onChange={(event) => onPromptChange(event.target.value)}
               placeholder="描述你想要的画面..."
               className="min-h-[220px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 pb-4 pt-28 text-base text-white outline-none transition focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/30"
             />
-            <div className="pointer-events-none absolute left-4 right-4 top-4 flex items-center gap-3">
-              {referenceImage && (
-                <div className="pointer-events-auto relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-lg shadow-black/30">
-                  <img src={referenceImage} alt="参考图片" className="h-full w-full object-cover" />
+            <div className="pointer-events-none absolute left-4 right-4 top-4 flex flex-wrap items-center gap-3">
+              {referenceImages.map((image, index) => (
+                <div
+                  key={index}
+                  className="pointer-events-auto relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-lg shadow-black/30"
+                >
+                  <img src={image} alt={`参考图片 ${index + 1}`} className="h-full w-full object-cover" />
                   <button
                     type="button"
                     onClick={(event) => {
                       event.preventDefault();
-                      onReferenceRemove();
+                      onReferenceRemove(index);
                     }}
                     className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-black/70 text-xs text-white transition hover:border-emerald-400/50 hover:bg-emerald-400/30"
                   >
                     ×
                   </button>
                 </div>
+              ))}
+              {referenceImages.length < 10 && (
+                <label className="pointer-events-auto flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-white/15 bg-black/30 text-slate-400 transition hover:border-emerald-400/60 hover:text-emerald-200">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleReferenceFileChange}
+                    disabled={disabled}
+                  />
+                  <PlusImageIcon />
+                  <span className="text-[10px] text-slate-500">
+                    {referenceImages.length > 0 ? `${referenceImages.length}/10` : "添加"}
+                  </span>
+                </label>
               )}
-              <label className="pointer-events-auto flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-white/15 bg-black/30 text-slate-400 transition hover:border-emerald-400/60 hover:text-emerald-200">
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleReferenceFileChange}
-                  disabled={disabled || !!referenceImage}
-                />
-                <PlusImageIcon />
-                <span className="text-[10px] text-slate-500">添加</span>
-              </label>
             </div>
           </div>
         </div>

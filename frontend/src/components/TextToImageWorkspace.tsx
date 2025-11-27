@@ -15,7 +15,7 @@ export function TextToImageWorkspace() {
   const [numCandidates, setNumCandidates] = useState(3);
   const [ratio, setRatio] = useState("1:1");
   const [formError, setFormError] = useState<string | null>(null);
-  const [referenceImage, setReferenceImage] = useState<string | null>(null);
+  const [referenceImages, setReferenceImages] = useState<string[]>([]);
 
   const { stage, result, error, isRunning, runPipeline, reset } = usePipeline();
 
@@ -41,7 +41,7 @@ export function TextToImageWorkspace() {
       .then((data) => {
         if (!mounted) return;
 
-        const allowedIds = new Set(["qwen", "dalle", "nano_banana"]);
+        const allowedIds = new Set(["qwen", "wan", "nano_banana"]);
         const filtered = data.filter((item) => allowedIds.has(item.id));
 
         const doubaoProvider: ProviderInfo = {
@@ -130,13 +130,13 @@ export function TextToImageWorkspace() {
       prompt,
       providers: selectedProviders,
       num_candidates: numCandidates,
+      reference_images: referenceImages.length > 0 ? referenceImages : undefined,
       params: {
         ratio,
         expand_prompt: false,
-        reference_image: referenceImage ?? undefined,
       },
     });
-  }, [selectedProviders, runPipeline, prompt, numCandidates, ratio, referenceImage]);
+  }, [selectedProviders, runPipeline, prompt, numCandidates, ratio, referenceImages]);
 
   const handleRegenerate = useCallback(() => {
     reset();
@@ -144,20 +144,39 @@ export function TextToImageWorkspace() {
   }, [reset, handleRun]);
 
   const handleReferenceUpload = useCallback((file: File) => {
+    if (referenceImages.length >= 10) {
+      setFormError("最多只能上传10张参考图片");
+      return;
+    }
+    const allowedTypes = new Set(["image/png", "image/jpeg"]);
+    if (!allowedTypes.has(file.type)) {
+      setFormError("仅支持上传 PNG 或 JPEG 图片，请重新选择。");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === "string") {
-        setReferenceImage(reader.result);
+        setReferenceImages((prev) => [...prev, reader.result as string]);
+        setFormError(null);
       }
     };
     reader.onerror = () => {
       console.warn("读取参考图片失败");
+      setFormError("读取参考图片失败，请重试");
     };
     reader.readAsDataURL(file);
-  }, []);
+  }, [referenceImages.length]);
 
-  const handleReferenceRemove = useCallback(() => {
-    setReferenceImage(null);
+  const handleReferenceDrop = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    for (const file of files) {
+      if (referenceImages.length >= 10) break;
+      handleReferenceUpload(file);
+    }
+  }, [handleReferenceUpload, referenceImages.length]);
+
+  const handleReferenceRemove = useCallback((index: number) => {
+    setReferenceImages((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
   return (
@@ -166,13 +185,14 @@ export function TextToImageWorkspace() {
 
       <div className="flex flex-col gap-6">
         <PromptPanel
-              prompt={prompt}
-              onPromptChange={setPrompt}
-              referenceImage={referenceImage}
-              onReferenceUpload={handleReferenceUpload}
-              onReferenceRemove={handleReferenceRemove}
-              numCandidates={numCandidates}
-              onNumCandidatesChange={setNumCandidates}
+          prompt={prompt}
+          onPromptChange={setPrompt}
+          referenceImages={referenceImages}
+          onReferenceUpload={handleReferenceUpload}
+          onReferenceDrop={handleReferenceDrop}
+          onReferenceRemove={handleReferenceRemove}
+          numCandidates={numCandidates}
+          onNumCandidatesChange={setNumCandidates}
               ratio={ratio}
               onRatioChange={setRatio}
               providers={providers}
