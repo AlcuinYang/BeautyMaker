@@ -42,7 +42,7 @@ export function AestheticPromptPanel({
     if (preset.value === "1:1") return "1024 × 1024";
     if (preset.value === "3:4") return "1024 × 1365";
     if (preset.value === "9:16") return "1024 × 1820";
-    return preset.label;
+    return (preset as { value: string; label: string }).label;
   }, [ratio]);
 
   return (

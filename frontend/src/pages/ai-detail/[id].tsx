@@ -11,12 +11,12 @@ import type {
 } from "../../types";
 
 const MODULE_NAME_MAP: Record<string, string> = {
-  color_score: "光色表现",
-  contrast_score: "构图表达",
-  clarity_eval: "清晰完整度",
-  noise_eval: "风格协调性",
-  quality_score: "情绪感染力",
-  holistic: "综合美感",
+  quality_score: "语义忠实度",
+  clarity_eval: "结构合理性",
+  contrast_score: "物理逻辑",
+  noise_eval: "画面纯净度",
+  color_score: "艺术美感",
+  holistic: "综合评分",
 };
 
 const SIZE_PRESET: Record<string, string> = {

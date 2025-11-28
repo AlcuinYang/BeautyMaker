@@ -6,6 +6,7 @@ type PipelinePayload = {
   prompt: string;
   providers: string[];
   num_candidates: number;
+  reference_images?: string[];
   params: {
     ratio: string;
     expand_prompt: boolean;

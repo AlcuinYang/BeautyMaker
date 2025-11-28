@@ -1,37 +1,21 @@
 """静态 Provider 元数据，供 /api/providers 返回使用。"""
 
 PROVIDER_META = {
-    "huggingface": {
-        "display_name": "Hugging Face Inference",
-        "description": "Run any model via HuggingFace Inference API.",
-        "category": "image_generation",
-        "is_free": True,
-        "icon": "/icons/huggingface.svg",
-        "endpoint": "https://api-inference.huggingface.co",
-    },
-    "stability_free": {
-        "display_name": "Stability AI Free Tier",
-        "description": "Official Stable Diffusion API (free quota).",
-        "category": "image_generation",
-        "is_free": True,
-        "icon": "/icons/stability.svg",
-        "endpoint": "https://api.stability.ai",
-    },
     "qwen": {
         "display_name": "Tongyi Qianwen (Qwen)",
-        "description": "Alibaba Cloud DashScope text-to-image service.",
+        "description": "Qwen-Image: complex text rendering, ideal for posters and text-heavy images.",
         "category": "image_generation",
         "is_free": False,
         "icon": "/icons/qwen.svg",
         "endpoint": "https://dashscope.aliyuncs.com",
     },
-    "gemini_2_5": {
-        "display_name": "Gemini 2.5 Flash Image",
-        "description": "Google's high-speed multi-modal model.",
+    "wan": {
+        "display_name": "Tongyi Wanxiang (Wan)",
+        "description": "Wanxiang: general image generation with reference image support.",
         "category": "image_generation",
         "is_free": False,
-        "icon": "/icons/gemini.svg",
-        "endpoint": "https://generativeai.google.com/",
+        "icon": "/icons/wan.svg",
+        "endpoint": "https://dashscope.aliyuncs.com",
     },
     "nano_banana": {
         "display_name": "Nano Banana (Fal.ai)",
@@ -47,30 +31,6 @@ PROVIDER_META = {
         "category": "image_generation",
         "is_free": False,
         "icon": "/icons/sd.svg",
-        "endpoint": None,
-    },
-    "dalle": {
-        "display_name": "DALL·E",
-        "description": "OpenAI’s image generation model.",
-        "category": "image_generation",
-        "is_free": False,
-        "icon": "/icons/dalle.svg",
-        "endpoint": "https://api.openai.com/v1/images",
-    },
-    "lab_aesthetic_score": {
-        "display_name": "Aesthetic Score (Lab)",
-        "description": "Internal aesthetic evaluation model.",
-        "category": "aesthetic_analysis",
-        "is_free": True,
-        "icon": "/icons/lab-aesthetic.svg",
-        "endpoint": None,
-    },
-    "lab_image_enhance": {
-        "display_name": "Image Enhancement (Lab)",
-        "description": "Internal clarity improvement model.",
-        "category": "enhancement",
-        "is_free": True,
-        "icon": "/icons/lab-enhance.svg",
         "endpoint": None,
     },
 }

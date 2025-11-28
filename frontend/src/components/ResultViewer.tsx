@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { useMemo, useState } from "react";
+import { AIGC_METRIC_LABELS, AIGC_METRIC_ORDER } from "../constants/aigcMetrics";
 import type { AestheticResponse } from "../types";
 import { ImagePreviewModal } from "./ImagePreviewModal";
 import { ScoreRadarChart } from "./ScoreRadarChart";
@@ -10,14 +11,7 @@ type ResultViewerProps = {
   moduleNameMap?: Record<string, string>;
 };
 
-const DEFAULT_MODULE_LABELS: Record<string, string> = {
-  holistic: "综合美感",
-  color_score: "光色表现",
-  contrast_score: "构图表达",
-  clarity_eval: "清晰完整度",
-  noise_eval: "风格协调性",
-  quality_score: "情绪感染力",
-};
+const DEFAULT_MODULE_LABELS: Record<string, string> = { ...AIGC_METRIC_LABELS };
 
 export function ResultViewer({
   result,
@@ -41,12 +35,14 @@ export function ResultViewer({
 
   const radarData = useMemo(() => {
     if (!result?.scores) return [];
-    return Object.entries(result.scores)
-      .filter(([key]) => key !== "composite_score")
-      .map(([key, value]) => ({
-        metric: mergedModuleNameMap[key] ?? key,
-        score: Number(((value ?? 0) * 10).toFixed(1)),
-      }));
+    const scores = result.scores;
+    return AIGC_METRIC_ORDER.filter((key) => key !== "composite_score" && scores[key] !== undefined).map(
+      (key) => ({
+        key,
+        label: mergedModuleNameMap[key] ?? key,
+        score: Number((((scores[key] ?? 0) as number) * 10).toFixed(1)),
+      }),
+    );
   }, [result, mergedModuleNameMap]);
 
   const primaryImage =

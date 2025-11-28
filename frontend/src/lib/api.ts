@@ -54,6 +54,7 @@ export const api = {
     prompt: string;
     providers: string[];
     num_candidates: number;
+    reference_images?: string[];
     params: { ratio: string; expand_prompt: boolean };
   }) =>
     request<PipelineResponse>("/v1/pipeline/text2image", {
@@ -65,7 +66,13 @@ export const api = {
     reference_images: string[];
     providers: string[];
     size: string;
-    params: { num_variations?: number; image_size?: string; group_mode?: boolean };
+    params: {
+      num_variations?: number;
+      image_size?: string;
+      group_mode?: boolean;
+      category?: "standing" | "flat" | "other";
+      use_auto_segmentation?: boolean;
+    };
   }) =>
     request<ImageComposeResponse>("/v1/pipeline/image2image", {
       method: "POST",

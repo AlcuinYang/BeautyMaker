@@ -15,6 +15,7 @@ import math
 import os
 import random
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence
 from uuid import UUID, uuid4
 
@@ -23,9 +24,10 @@ from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 from pathlib import Path
 
-from services.common.models import GeneratedImage
+from services.common.models import ComparativeReview, GeneratedImage
 from services.generate import get_provider
 from services.generate.models import GenerateRequestPayload
+from services.reviewer.service import AestheticReviewer
 from services.scoring.aggregator import AggregationResult, ScoringAggregator
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,8 @@ _DOUBAO_LOG_FILE = Path(os.getenv("DOUBAO_LOG_PATH", "logs/doubao_events.jsonl")
 _PIPELINE_LOG_FILE = Path(os.getenv("PIPELINE_LOG_PATH", "logs/pipeline_runs.jsonl"))
 # 默认的 ARK API 密钥
 DEFAULT_ARK_API_KEY = os.getenv("DEFAULT_ARK_API_KEY", "")
+# Vision API 并发限制（防止触发 429 Too Many Requests）
+_VISION_SEMAPHORE = asyncio.Semaphore(2)
 
 
 def _record_doubao_event(event: str, payload: Dict[str, Any]) -> None:
@@ -99,6 +103,13 @@ DEFAULT_MODULES = [
 ]
 
 
+class ProductCategory(str, Enum):
+    """产品类别枚举"""
+    STANDING = "standing"  # 立式产品（瓶子、盒子等）- 视线平视拍摄
+    FLAT = "flat"          # 平铺产品（衣服、书籍等）- 平铺拍摄
+    OTHER = "other"        # 默认/其他类别
+
+
 class Image2ImagePipelineParams(BaseModel):
     """图生图流程的可选参数配置"""
     modules: Optional[List[str]] = None  # 使用的评分模块列表
@@ -108,6 +119,8 @@ class Image2ImagePipelineParams(BaseModel):
     platform: Optional[str] = None  # 平台提示（例如：淘宝、京东）
     product: Optional[str] = None  # 产品提示
     style: Optional[str] = None  # 风格提示
+    category: ProductCategory = Field(default=ProductCategory.OTHER, description="产品类别，用于提示词增强")
+    use_auto_segmentation: bool = Field(default=True, description="是否使用RMBG自动去除背景")
 
 
 class Image2ImagePipelineRequest(BaseModel):
@@ -156,8 +169,14 @@ async def run_image2image_pipeline(payload: Image2ImagePipelineRequest) -> Dict[
         # 判断是否为组模式（不再强制压缩模块，保持与文生图一致）
         group_mode = bool(getattr(params, "group_mode", False))
 
-        # 最终的提示词
-        final_prompt = payload.prompt
+        # 最终的提示词 (经过电商增强)
+        final_prompt = _enhance_prompt(
+            user_prompt=payload.prompt,
+            category=payload.params.category
+        )
+        
+        # 记录增强后的 Prompt 以便调试
+        logger.info(f"Enhanced Prompt: {final_prompt}")
 
         # 生成所有候选图片
         all_candidates = await _generate_candidates(
@@ -243,6 +262,23 @@ async def run_image2image_pipeline(payload: Image2ImagePipelineRequest) -> Dict[
         # 最佳图片的美学评分（用于前端反馈展示）
         feedback_score = best_evaluation.composite_score if best_evaluation else None
 
+        # Generate comparative review if we have multiple candidates
+        review = None
+        if len(ordered_candidates) >= 2:
+            # Extract GeneratedImage objects and evaluations for the reviewer
+            imgs = [c.image for c in ordered_candidates]
+            evals = {
+                c.image.url: c.evaluation.image_results[c.image.url]
+                for c in ordered_candidates
+                if c.evaluation and c.image.url in c.evaluation.image_results
+            }
+
+            if evals:
+                reviewer = AestheticReviewer()
+                review_result = await reviewer.review_candidates(imgs, evals, context="ecommerce")
+                if review_result:
+                    review = review_result.model_dump()
+
         # 构建成功响应
         response = {
             "status": "success",  # 状态：成功
@@ -256,6 +292,7 @@ async def run_image2image_pipeline(payload: Image2ImagePipelineRequest) -> Dict[
             "final_prompt": final_prompt,  # 最终使用的提示词
             "aesthetic_score": feedback_score,  # 最佳图片的美学评分
             "group_mode": group_mode,  # 是否为组模式
+            "review": review,  # 对比点评（如果有）
         }
         _record_pipeline_event(
             "pipeline_summary",
@@ -313,35 +350,9 @@ async def _generate_candidates(
     size: str,
     group_mode: bool,
 ) -> List[GeneratedMarketingImage]:
-    """跨多个模型提供商生成候选图片
-
-    这个函数会：
-    1. 为每个提供商生成指定数量的变体图片
-    2. 对生成的图片进行美学评分
-    3. 验证图片与参考图的主体一致性
-    4. 返回所有候选图片及其评估结果
-
-    Args:
-        task_id: 任务唯一标识符
-        prompt: 用户提示词
-        providers: 模型提供商列表
-        num_variations: 每个提供商生成的变体数量
-        reference_images: 参考图片列表
-        modules: 使用的评分模块列表
-        size: 生成图像的尺寸
-        group_mode: 是否为组模式
-
-    Returns:
-        生成的营销图片列表（包含评分和验证结果）
-    """
-    # 创建评分聚合器实例
     aggregator = ScoringAggregator()
-    # 存储所有生成的候选图片
     generated: List[GeneratedMarketingImage] = []
-
-    # 限制变体数量在 1-15 之间
     capped_variations = max(1, min(num_variations, 15))
-    # 为每个提供商创建信号量，限制并发请求（每个提供商同时只处理1个请求）
     provider_limits: Dict[str, asyncio.Semaphore] = {
         name: asyncio.Semaphore(1) for name in set(providers)
     }
@@ -352,37 +363,17 @@ async def _generate_candidates(
         semaphore: asyncio.Semaphore,
         runner,
     ):
-        """带重试机制的异步任务执行器
-
-        遇到可重试的错误（如限流、超时）时会自动重试，最多3次。
-
-        Args:
-            provider_label: 提供商标签（用于日志）
-            semaphore: 信号量（限制并发）
-            runner: 要执行的异步函数
-
-        Returns:
-            runner 函数的返回值
-
-        Raises:
-            Exception: 重试3次后仍失败，或遇到不可重试的错误
-        """
-        # 重试延迟时间（秒）：第1次重试0.3s，第2次0.8s，第3次1.5s
         delays = [0.3, 0.8, 1.5]
         last_error: Optional[Exception] = None
         for attempt, delay in enumerate(delays, start=1):
             try:
-                # 使用信号量限制并发
                 async with semaphore:
-                    # 添加小的随机延迟，避免请求冲突
                     await asyncio.sleep(0.1 + random.uniform(0, 0.1))
                     return await runner()
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
-                # 判断是否为可重试的错误（如限流、超时等）
                 should_retry = _is_retryable_generation_error(exc)
                 if attempt < len(delays) and should_retry:
-                    # 计算退避时间（基础延迟 + 随机抖动）
                     backoff = delay + random.uniform(0, 0.2)
                     logger.warning(
                         "生成候选重试(provider=%s attempt=%s/%s): %s，%.2fs 后再试",
@@ -394,24 +385,23 @@ async def _generate_candidates(
                     )
                     await asyncio.sleep(backoff)
                     continue
-                # 不可重试的错误，直接抛出
                 raise
-        # 所有重试都失败了
-        assert last_error  # for type checkers
+        assert last_error
         raise last_error
 
     for provider_id in providers:
         provider = get_provider(provider_id)
         semaphore = provider_limits[provider_id]
-
         generated_images: List[GeneratedImage] = []
+
         logger.info(
-            "Generating with provider=%s references=%s",
+            "Generating with provider=%s references=%s variations=%s",
             provider.name,
             _summarize_images(reference_images),
+            capped_variations,
         )
 
-        if provider.name == "doubao_seedream" and capped_variations > 1:
+        async def _generate_single() -> GeneratedImage:
             request_payload = GenerateRequestPayload(
                 task="image2image",
                 prompt=prompt,
@@ -419,108 +409,52 @@ async def _generate_candidates(
                 size=size,
                 params={
                     "reference_images": list(reference_images),
-                    "sequential_mode": "auto",
-                    "num_variations": capped_variations,
+                    "num_variations": 1,
                 },
             )
-            try:
-                async def _execute_seq():
-                    response = await provider.generate(request_payload)
-                    urls = _extract_urls(response)
-                    if not urls:
-                        raise RuntimeError(f"{provider.name} 未返回有效图片")
-                    return response, urls
 
-                response, urls = await _run_with_retry(
-                    provider_label=provider.name,
-                    semaphore=semaphore,
-                    runner=_execute_seq,
-                )
+            async def _execute_single() -> GeneratedImage:
+                response = await provider.generate(request_payload)
+                urls = _extract_urls(response)
                 if not urls:
                     raise RuntimeError(f"{provider.name} 未返回有效图片")
-                metadata_base = response.get("metadata", {}) or {}
-                delivered = urls[:capped_variations]
-                group_size = len(delivered) if group_mode else None
-                logger.info(
-                    "Seedream sequential run delivered=%s requested=%s unique=%s",
-                    len(delivered),
-                    capped_variations,
-                    len({url for url in delivered}),
-                )
-                for index, url in enumerate(delivered):
-                    image_metadata = dict(metadata_base)
-                    image_metadata["sequence_index"] = index
-                    if group_size is not None:
-                        image_metadata["group_size"] = group_size
-                    generated_images.append(
-                        GeneratedImage(
-                            url=url,
-                            provider=provider.name,
-                            prompt=prompt,
-                            metadata=image_metadata,
-                        )
-                    )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("生成候选失败(provider=%s): %s", provider.name, exc, extra={"provider": provider.name})
-                continue
-        else:
-            async def _generate_single() -> GeneratedImage:
-                request_payload = GenerateRequestPayload(
-                    task="image2image",
-                    prompt=prompt,
+                return GeneratedImage(
+                    url=urls[0],
                     provider=provider.name,
-                    size=size,
-                    params={
-                        "reference_images": list(reference_images),
-                        "sequential_mode": "auto" if reference_images else "disabled",
-                        "num_variations": 1,
-                    },
+                    prompt=prompt,
+                    metadata=response.get("metadata", {}),
                 )
 
-                async def _execute_single() -> GeneratedImage:
-                    response = await provider.generate(request_payload)
-                    urls = _extract_urls(response)
-                    if not urls:
-                        raise RuntimeError(f"{provider.name} 未返回有效图片")
-                    return GeneratedImage(
-                        url=urls[0],
-                        provider=provider.name,
-                        prompt=prompt,
-                        metadata=response.get("metadata", {}),
-                    )
+            return await _run_with_retry(
+                provider_label=provider.name,
+                semaphore=semaphore,
+                runner=_execute_single,
+            )
 
-                return await _run_with_retry(
-                    provider_label=provider.name,
-                    semaphore=semaphore,
-                    runner=_execute_single,
+        tasks = [asyncio.create_task(_generate_single()) for _ in range(capped_variations)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for index, item in enumerate(results):
+            if isinstance(item, Exception):
+                logger.warning(
+                    "生成候选失败(provider=%s): %s",
+                    provider.name,
+                    item,
+                    extra={"provider": provider.name},
                 )
-
-            tasks = [asyncio.create_task(_generate_single()) for _ in range(num_variations)]
-            if capped_variations != num_variations:
-                tasks = tasks[:capped_variations]
-            images = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for index, item in enumerate(images):
-                if isinstance(item, Exception):
-                    logger.warning(
-                        "生成候选失败(provider=%s): %s",
-                        provider.name,
-                        item,
-                        extra={"provider": provider.name},
-                    )
-                    continue
-                base_metadata = dict(item.metadata or {})
-                if group_mode:
-                    base_metadata["sequence_index"] = index
-                    base_metadata["group_size"] = capped_variations
-                generated_images.append(
-                    GeneratedImage(
-                        url=item.url,
-                        provider=item.provider,
-                        prompt=item.prompt,
-                        metadata=base_metadata,
-                    )
+                continue
+            base_metadata = dict(item.metadata or {})
+            if group_mode:
+                base_metadata["sequence_index"] = index
+                base_metadata["group_size"] = capped_variations
+            generated_images.append(
+                GeneratedImage(
+                    url=item.url,
+                    provider=item.provider,
+                    prompt=item.prompt,
+                    metadata=base_metadata,
                 )
+            )
 
         if not generated_images:
             continue
@@ -601,44 +535,101 @@ async def _verify_consistency(
     Returns:
         字典，键为图片 URL，值为验证结果（包含 status、score、comment）
     """
-    # 获取 API 密钥（优先级：ARK_API_KEY > DOUBAO_API_KEY > 默认值）
     api_key = (
         os.getenv("ARK_API_KEY")
         or os.getenv("DOUBAO_API_KEY")
         or DEFAULT_ARK_API_KEY
     )
 
-    # 如果没有生成图片，直接返回空字典
     if not generated_images:
         return {}
 
-    # 存储每张图片的验证结果
+    async def _check_single_image_with_retry(image: GeneratedImage) -> tuple[str, Dict[str, Any]]:
+        """带重试的单张图片一致性检查"""
+        async with _VISION_SEMAPHORE:
+            for attempt in range(3):
+                try:
+                    score = await _request_consistency_score(
+                        api_key=api_key,
+                        reference_images=reference_images,
+                        candidate_image=image.url,
+                    )
+                    return (
+                        image.url,
+                        {
+                            "status": "scored",
+                            "score": score,
+                        },
+                    )
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 429 and attempt < 2:
+                        backoff = 2 ** attempt
+                        logger.warning(
+                            "Rate limit hit (429) for %s, retrying in %ss (attempt %s/3)",
+                            image.url,
+                            backoff,
+                            attempt + 1,
+                        )
+                        await asyncio.sleep(backoff)
+                        continue
+                    logger.warning(
+                        "Consistency check failed for %s: HTTP %s",
+                        image.url,
+                        exc.response.status_code,
+                    )
+                    return (
+                        image.url,
+                        {
+                            "status": "failed",
+                            "score": 0.0,
+                            "comment": f"HTTP {exc.response.status_code}",
+                        },
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    if attempt < 2 and ("429" in str(exc) or "rate limit" in str(exc).lower()):
+                        backoff = 2 ** attempt
+                        logger.warning(
+                            "Rate limit detected for %s, retrying in %ss (attempt %s/3)",
+                            image.url,
+                            backoff,
+                            attempt + 1,
+                        )
+                        await asyncio.sleep(backoff)
+                        continue
+                    logger.warning(
+                        "Consistency check failed for %s: %s",
+                        image.url,
+                        exc,
+                    )
+                    return (
+                        image.url,
+                        {
+                            "status": "failed",
+                            "score": 0.0,
+                            "comment": str(exc),
+                        },
+                    )
+
+        return (
+            image.url,
+            {
+                "status": "failed",
+                "score": 0.0,
+                "comment": "All retries exhausted",
+            },
+        )
+
+    tasks = [_check_single_image_with_retry(image) for image in generated_images]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
     verification: Dict[str, Dict[str, Any]] = {}
-    for image in generated_images:
-        try:
-            # 调用豆包 API 获取一致性分数
-            score = await _request_consistency_score(
-                api_key=api_key,
-                reference_images=reference_images,
-                candidate_image=image.url,
-            )
-            verification[image.url] = {
-                "status": "scored",  # 状态：已评分
-                "score": score,  # 一致性分数（0.0-1.0）
-            }
-        except Exception as exc:  # noqa: BLE001
-            # 如果验证失败，记录警告并使用占位符分数
-            logger.warning(
-                "Consistency check failed for %s: %s",
-                image.url,
-                exc,
-                extra={"task_id": str(task_id)},
-            )
-            verification[image.url] = {
-                "status": "pending_review",  # 状态：待人工审核
-                "score": 0.0,  # 占位符分数
-                "comment": str(exc),  # 错误信息
-            }
+    for result in results:
+        if isinstance(result, Exception):
+            logger.error("Unexpected error in consistency check: %s", result)
+            continue
+        url, check_result = result
+        verification[url] = check_result
+
     return verification
 
 
@@ -1288,11 +1279,17 @@ def _extract_consistency_score(payload: Dict[str, Any]) -> Optional[float]:
                     pass
 
             # 递归搜索嵌套字段
-            for nested_key in ("output", "data", "answer", "response", "extra"):
+            for nested_key in ("output", "data", "answer", "response", "extra", "choices", "message", "messages"):
                 nested = obj.get(nested_key)
                 value = _scan(nested)
                 if value is not None:
                     return value
+
+            # 兜底：递归扫描所有值，防止遗漏未列出的键
+            for value in obj.values():
+                scanned = _scan(value)
+                if scanned is not None:
+                    return scanned
 
         elif isinstance(obj, list):
             # 递归搜索列表中的每个元素
@@ -1347,3 +1344,49 @@ def _select_best_image(candidates: Sequence[GeneratedMarketingImage]) -> Optiona
             best = candidate
             best_score = score
     return best
+
+def _enhance_prompt(user_prompt: str, category: ProductCategory) -> str:
+    """
+    根据产品品类增强 Prompt，注入电商摄影专业术语。
+    
+    Args:
+        user_prompt: 用户输入的原始提示词
+        category: 产品品类 (STANDING/FLAT/OTHER)
+        
+    Returns:
+        增强后的 Prompt 字符串
+    """
+    # 1. 通用电商质感增强 (无论什么产品都要加)
+    # 包含：商业摄影、影棚光、8k分辨率、超细节、干净构图
+    quality_suffix = (
+        ", Professional commercial photography, studio lighting, soft shadows, "
+        "8k resolution, hyper-realistic, highly detailed, clean composition, "
+        "cinematic lighting, advertising standard"
+    )
+
+    # 2. 基于品类的定向增强
+    category_suffix = ""
+    if category == ProductCategory.STANDING:
+        # 立体产品 (瓶子/化妆品)：强调平视、景深、轮廓光
+        category_suffix = (
+            ", eye-level shot, depth of field, blurred background, "
+            "placed on a minimal podium, 3d render style, product closeup, rim light"
+        )
+    elif category == ProductCategory.FLAT:
+        # 扁平产品 (衣服/书本)：强调俯拍、平铺、均匀光
+        category_suffix = (
+            ", flat lay, top-down view, knolling photography, 90 degree angle, "
+            "neatly arranged, high texture detail, uniform lighting, no shadow"
+        )
+
+    # 3. 组合逻辑
+    clean_prompt = user_prompt.strip() if user_prompt else ""
+    
+    # 如果用户没填 Prompt，直接使用增强词作为描述
+    if not clean_prompt:
+        # 去掉开头的逗号
+        combined = f"{category_suffix} {quality_suffix}".strip(", ")
+        return combined
+    
+    # 用户有输入，则追加增强词
+    return f"{clean_prompt}{category_suffix}{quality_suffix}"

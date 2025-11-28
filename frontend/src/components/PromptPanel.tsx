@@ -20,6 +20,8 @@ interface PromptPanelProps {
   selectedProviders: string[];
   onAddProvider: (id: string) => void;
   onRemoveProvider: (id: string) => void;
+  aestheticModel: string;
+  onAestheticModelChange: (id: string) => void;
   onSubmit: () => void;
   disabled: boolean;
 }
@@ -32,7 +34,11 @@ const RATIOS = [
   { label: "16:9", value: "16:9", size: "2560x1440" },
 ] as const;
 
-type ToolKey = "ratio" | "providers" | "count";
+const AESTHETIC_MODELS = [
+  { id: "mnet_v1", name: "MNet V1", description: "多维度美学评分模型" },
+] as const;
+
+type ToolKey = "ratio" | "providers" | "count" | "aesthetic";
 
 export function PromptPanel({
   prompt,
@@ -53,6 +59,8 @@ export function PromptPanel({
   onSubmit,
   disabled,
   onReferenceDrop,
+  aestheticModel,
+  onAestheticModelChange,
 }: PromptPanelProps) {
   const decrement = () => onNumCandidatesChange(Math.max(1, numCandidates - 1));
   const increment = () => onNumCandidatesChange(Math.min(6, numCandidates + 1));
@@ -178,6 +186,13 @@ export function PromptPanel({
           label={`输出 ${numCandidates} 张`}
           active={activeTool === "count"}
           onClick={() => setActiveTool((current) => (current === "count" ? null : "count"))}
+          disabled={disabled}
+        />
+        <ToolButton
+          icon="⚡"
+          label="美学评分"
+          active={activeTool === "aesthetic"}
+          onClick={() => setActiveTool((current) => (current === "aesthetic" ? null : "aesthetic"))}
           disabled={disabled}
         />
         {/* <ToolButton icon="✨" label="扩写已关闭" active={false} disabled /> */}
@@ -318,6 +333,63 @@ export function PromptPanel({
               +
             </button>
           </div>
+        </div>
+      )}
+
+      {activeTool === "aesthetic" && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+              美学评分模型
+            </span>
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1">
+              <span className="text-xs text-emerald-300">⚡</span>
+              <span className="text-xs font-medium text-emerald-200">已启用</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {AESTHETIC_MODELS.map((model) => (
+              <button
+                key={model.id}
+                type="button"
+                onClick={() => onAestheticModelChange(model.id)}
+                disabled={disabled}
+                className={`w-full rounded-lg border p-3 text-left transition ${
+                  aestheticModel === model.id
+                    ? "border-emerald-400/60 bg-emerald-400/10"
+                    : "border-white/10 bg-white/5 hover:border-emerald-400/40 hover:bg-white/10"
+                } disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-white">{model.name}</span>
+                      {aestheticModel === model.id && (
+                        <span className="rounded-full bg-emerald-400/20 px-2 py-0.5 text-[10px] font-medium text-emerald-200">
+                          当前
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-slate-400">{model.description}</p>
+                  </div>
+                  {aestheticModel === model.id && (
+                    <svg
+                      className="h-5 w-5 text-emerald-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500">
+            调用实验室评分模型生成美学指数。
+          </p>
         </div>
       )}
 

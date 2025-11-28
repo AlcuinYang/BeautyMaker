@@ -4,7 +4,8 @@ import type { PipelineStageValue } from "../hooks/usePipeline";
 import type { PipelineResponse, ProviderInfo } from "../types";
 import { ImagePreviewModal } from "./ImagePreviewModal";
 import { PipelineTimeline } from "./PipelineTimeline";
-import { ScoreRadarChart } from "./ScoreRadarChart";
+import { AestheticAnalysisCard } from "./AestheticAnalysisCard";
+import { METRIC_LABELS } from "../lib/constants";
 
 interface GenerateResultProps {
   result: PipelineResponse | null;
@@ -23,7 +24,6 @@ export function GenerateResult({
 }: GenerateResultProps) {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
-  const radarData = useMemo(() => buildRadarData(result), [result]);
   const bestProviderName = useMemo(() => {
     if (!result?.best_image_url || !result.candidates) return null;
     const bestCandidate = result.candidates.find(
@@ -145,21 +145,6 @@ export function GenerateResult({
           </div>
 
           <div className="flex-1 space-y-4">
-            <div className="h-56 rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-slate-400">
-              <div className="mb-2 flex items-center justify-between text-sm text-white">
-                <span>美学维度评分</span>
-                <span>1 - 10</span>
-              </div>
-              <ScoreRadarChart data={radarData} />
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-slate-300">
-              <h3 className="text-base font-semibold text-white">系统点评</h3>
-              <p className="mt-2 text-sm text-slate-400">
-                {result.summary ?? "该图片在多项指标表现均衡。"}
-              </p>
-            </div>
-
             <div className="flex flex-wrap gap-3">
               <a
                 href={result.best_image_url ?? "#"}
@@ -197,6 +182,22 @@ export function GenerateResult({
             </div>
           </div>
         </div>
+
+        {result.best_composite_score !== undefined && (
+          <AestheticAnalysisCard
+            score={result.best_composite_score || 0}
+            details={extractScoresFromCandidates(result)}
+            review={
+              result.review?.title && result.review?.analysis && result.review?.key_difference
+                ? {
+                    title: result.review.title,
+                    analysis: result.review.analysis,
+                    key_difference: result.review.key_difference,
+                  }
+                : undefined
+            }
+          />
+        )}
 
         {result.candidates && result.candidates.length > 1 && (
           <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-xs text-slate-400">
@@ -256,6 +257,22 @@ export function GenerateResult({
                       无图片
                     </div>
                   )}
+                  {candidate.scores && Object.keys(candidate.scores).length > 0 && (
+                    <div className="mt-3 space-y-1.5 text-[11px]">
+                      {buildCandidateMetrics(candidate.scores).map((item) => (
+                        <div key={item.key} className="flex items-center gap-2">
+                          <span className="w-16 truncate text-slate-400">{item.label}</span>
+                          <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-slate-800/80">
+                            <span
+                              className="absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-emerald-400/80 via-emerald-300/70 to-cyan-300/70"
+                              style={{ width: `${item.percent}%` }}
+                            />
+                          </div>
+                          <span className="w-10 text-right text-slate-200">{item.display}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -267,30 +284,43 @@ export function GenerateResult({
   );
 }
 
-function buildRadarData(result: PipelineResponse | null) {
-  if (!result?.candidates || result.candidates.length === 0) {
-    return [];
+function extractScoresFromCandidates(result: PipelineResponse): Record<string, number> {
+  if (!result.candidates || result.candidates.length === 0) {
+    return {};
   }
-  const best =
-    result.candidates.find((item) => item.image_url === result.best_image_url) ??
-    result.candidates.reduce((acc, item) => {
-      if (!acc) return item;
-      return (item.composite_score ?? 0) > (acc.composite_score ?? 0) ? item : acc;
-    });
+  const bestCandidate = result.candidates.find(
+    (candidate) => candidate.image_url === result.best_image_url,
+  );
+  if (!bestCandidate?.scores) {
+    return {};
+  }
+  const scores: Record<string, number> = {};
+  for (const [key, value] of Object.entries(bestCandidate.scores)) {
+    scores[key] = value;
+  }
+  if (result.best_composite_score !== undefined) {
+    scores.holistic = result.best_composite_score;
+  }
+  return scores;
+}
 
-  const scores = best?.scores ?? {};
-  const LABEL_MAP: Record<string, string> = {
-    holistic: "综合美感",
-    color_score: "光色表现",
-    contrast_score: "构图表达",
-    clarity_eval: "清晰完整度",
-    noise_eval: "风格协调性",
-    quality_score: "情绪感染力",
-  };
-  return Object.entries(scores).map(([key, value]) => ({
-    metric: LABEL_MAP[key] ?? key,
-    score: Number(((value ?? 0) * 10).toFixed(1)),
-  }));
+function buildCandidateMetrics(
+  scores: Record<string, number | undefined | null>,
+): Array<{ key: string; label: string; percent: number; display: string }> {
+  const metricKeys = ["contrast_score", "color_score", "clarity_eval", "quality_score", "noise_eval"];
+  return metricKeys
+    .filter((key) => scores[key] !== undefined && scores[key] !== null)
+    .map((key) => {
+      const raw = Number(scores[key] ?? 0);
+      const percent = Math.max(0, Math.min(100, Math.round(raw * 100)));
+      const display = (raw * 10).toFixed(1);
+      return {
+        key,
+        label: METRIC_LABELS[key] ?? key,
+        percent,
+        display,
+      };
+    });
 }
 
 function MagnifierIcon({ size = 18 }: { size?: number }) {

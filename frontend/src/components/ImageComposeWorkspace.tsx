@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import type { ChangeEvent, DragEvent } from "react";
 import { motion } from "framer-motion";
 import { api } from "../lib/api";
 import type { ImageComposeResponse, ImageComposeResultItem, ProviderInfo } from "../types";
 import { useImageCompose, ComposeStage } from "../hooks/useImageCompose";
 import type { ComposeStageValue } from "../hooks/useImageCompose";
-import { ComposeTimeline } from "./ComposeTimeline";
+import { GlobalProgressBar } from "./GlobalProgressBar";
 import { ImagePreviewModal } from "./ImagePreviewModal";
+import { SmartUploadModal } from "./SmartUploadModal";
+import { AestheticAnalysisCard } from "./AestheticAnalysisCard";
 
 const RATIO_OPTIONS = [
   { value: "1:1", label: "1 : 1", size: "2048x2048" },
@@ -23,9 +24,22 @@ const RATIO_SIZE_MAP = RATIO_OPTIONS.reduce<Record<string, string>>((acc, item) 
 
 const DEFAULT_RATIO = "1:1";
 
-const PROVIDER_WHITELIST = new Set(["qwen", "wan", "doubao_seedream", "nano_banana"]);
+const PROVIDER_WHITELIST = new Set(["wan", "doubao_seedream"]);
 
-type ToolKey = "ratio" | "model" | "count";
+const AESTHETIC_MODELS = [
+  { id: "mnet_v1", name: "MNet V1", description: "多维度美学评分模型" },
+] as const;
+
+const ECOMMERCE_STEPS = [
+  { label: "提取主体", description: "识别产品", icon: "🎯" },
+  { label: "提示词增强", description: "优化描述", icon: "✨" },
+  { label: "图像生成", description: "模型出图", icon: "🎨" },
+  { label: "一致性检查", description: "主体校验", icon: "🔍" },
+  { label: "美学评分", description: "质量打分", icon: "⭐" },
+  { label: "完成", description: "输出结果", icon: "✅" },
+];
+
+type ToolKey = "ratio" | "model" | "count" | "aesthetic";
 
 export function ImageComposeWorkspace() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -41,6 +55,11 @@ export function ImageComposeWorkspace() {
   const [groupMode, setGroupMode] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<ToolKey | null>(null);
+  const [smartUploadModalOpen, setSmartUploadModalOpen] = useState(false);
+  const [productCategory, setProductCategory] = useState<"standing" | "flat" | "other">("other");
+  const [aestheticModel, setAestheticModel] = useState("mnet_v1");
+  const [progressStep, setProgressStep] = useState(-1);
+  const progressIntervalRef = useRef<number | null>(null);
 
   const { stage, result, error, isRunning, run, reset } = useImageCompose();
 
@@ -69,8 +88,19 @@ export function ImageComposeWorkspace() {
         if (!mounted) return;
         const filtered = data.filter((item) => PROVIDER_WHITELIST.has(item.id));
 
-        if (!filtered.some((item) => item.id === "doubao_seedream")) {
-          filtered.push({
+        const fallbackProviders: ProviderInfo[] = [
+          {
+            id: "wan",
+            display_name: "Tongyi Wanxiang (Wan)",
+            description: "阿里通义万相图生图",
+            category: "image_generation",
+            is_free: false,
+            is_active: true,
+            icon: null,
+            endpoint: "",
+            latency_ms: null,
+          },
+          {
             id: "doubao_seedream",
             display_name: "豆包 · Seedream",
             description: "豆包大模型 Seedream 文生图",
@@ -80,17 +110,24 @@ export function ImageComposeWorkspace() {
             icon: null,
             endpoint: "https://www.doubao.com/seeds/dream",
             latency_ms: null,
-          });
-        }
+          },
+        ];
 
-        setProviders(filtered);
+        const mergedMap: Record<string, ProviderInfo> = {};
+        [...filtered, ...fallbackProviders].forEach((item) => {
+          if (PROVIDER_WHITELIST.has(item.id)) {
+            mergedMap[item.id] = item;
+          }
+        });
+
+        const mergedProviders = Object.values(mergedMap);
+        setProviders(mergedProviders);
 
         const validStored = storedProviders.find((id) =>
-          filtered.some((item) => item.id === id),
+          mergedProviders.some((item) => item.id === id),
         );
-        const doubao = filtered.find((item) => item.id === "doubao_seedream");
-        const fallback = filtered[0];
-        const initial = validStored ?? doubao?.id ?? fallback?.id;
+        const fallback = mergedProviders[0];
+        const initial = validStored ?? fallback?.id;
         setSelectedProviders(initial ? [initial] : []);
       })
       .catch((err) => console.error("加载模型列表失败", err))
@@ -140,17 +177,11 @@ export function ImageComposeWorkspace() {
 
   useEffect(() => {
     setNumVariations((prev) => {
-      const min = groupMode ? 2 : 1;
-      const max = groupMode ? 15 : 3;
+      const min = 1;
+      const max = 6;
       return Math.min(Math.max(prev, min), max);
     });
   }, [groupMode]);
-
-  const handleSelectProvider = useCallback((value: string) => {
-    if (!value) return;
-    setSelectedProviders([value]);
-    setActiveTool(null);
-  }, []);
 
   const handleRatioChange = useCallback((value: string) => {
     setRatio(value);
@@ -168,16 +199,15 @@ export function ImageComposeWorkspace() {
 
   const handleCountChange = useCallback(
     (value: number) => {
-      const min = groupMode ? 2 : 1;
-      const max = groupMode ? 15 : 3;
+      const min = 1;
+      const max = 6;
       const clamped = Math.min(Math.max(value, min), max);
       setNumVariations(clamped);
-      setActiveTool(null);
     },
-    [groupMode],
+    [],
   );
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (isRunning) return;
     if (!prompt.trim()) {
       setFormError("请输入提示词。");
@@ -193,8 +223,36 @@ export function ImageComposeWorkspace() {
     }
     setActiveTool(null);
     setFormError(null);
+
+    // Clear any existing progress interval
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+
+    // Start progress simulation
+    setProgressStep(0);
+    let currentSimulatedStep = 0;
+
+    // Simulate steps 0 -> 1 -> 2 -> 3 (stay at 3 during generation)
+    progressIntervalRef.current = setInterval(() => {
+      currentSimulatedStep++;
+      if (currentSimulatedStep <= 3) {
+        setProgressStep(currentSimulatedStep);
+      }
+      if (currentSimulatedStep >= 3) {
+        // Stop at step 3 (图像生成) and wait for API
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+      }
+    }, 1500);
+
     const size = RATIO_SIZE_MAP[ratio] ?? RATIO_SIZE_MAP[DEFAULT_RATIO];
-    run({
+
+    // Call the API
+    await run({
       prompt,
       reference_images: referenceImages,
       providers: selectedProviders,
@@ -203,14 +261,41 @@ export function ImageComposeWorkspace() {
         num_variations: numVariations,
         image_size: size,
         group_mode: groupMode,
+        category: productCategory,
+        use_auto_segmentation: true,
       },
     });
+
+    // API completed - quickly advance through final steps
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+
+    setProgressStep(4); // 美学评分
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    setProgressStep(5); // 完成
   };
 
   const handleRegenerate = () => {
+    // Clean up progress interval
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+    setProgressStep(-1);
     reset();
     handleGenerate();
   };
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+      }
+    };
+  }, []);
 
   const processReferenceFiles = useCallback(
     (files: File[]) => {
@@ -269,28 +354,13 @@ export function ImageComposeWorkspace() {
     [referenceImageSizes],
   );
 
-  const handleReferenceUpload = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const inputEl = event.target;
-      const files = Array.from(inputEl.files ?? []);
-      const ok = processReferenceFiles(files);
-      if (!ok) {
-        inputEl.value = "";
-        return;
-      }
-      inputEl.value = "";
+  const handleSmartUpload = useCallback(
+    (file: File, category: "standing" | "flat" | "other") => {
+      setProductCategory(category);
+      processReferenceFiles([file]);
+      setSmartUploadModalOpen(false);
     },
     [processReferenceFiles],
-  );
-
-  const handleReferenceDrop = useCallback(
-    (event: React.DragEvent<HTMLLabelElement>) => {
-      event.preventDefault();
-      if (isRunning) return;
-      const files = Array.from(event.dataTransfer.files || []);
-      processReferenceFiles(files);
-    },
-    [isRunning, processReferenceFiles],
   );
 
   const handleReferenceRemove = useCallback((index: number) => {
@@ -400,24 +470,15 @@ export function ImageComposeWorkspace() {
                       </button>
                     </div>
                   ))}
-                  <label
-                    className="pointer-events-auto flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-white/15 bg-black/30 text-slate-400 transition hover:border-emerald-400/60 hover:text-emerald-200"
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                    }}
-                    onDrop={handleReferenceDrop}
+                  <button
+                    type="button"
+                    onClick={() => setSmartUploadModalOpen(true)}
+                    disabled={isRunning}
+                    className="pointer-events-auto flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-white/15 bg-black/30 text-slate-400 transition hover:border-emerald-400/60 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={handleReferenceUpload}
-                      disabled={isRunning}
-                    />
                     <PlusImageIcon />
                     <span className="text-[10px] text-slate-500">添加</span>
-                  </label>
+                  </button>
                 </div>
               </div>
             </div>
@@ -440,12 +501,17 @@ export function ImageComposeWorkspace() {
             />
             <ToolButton
               icon="🔁"
-              label={
-                groupMode ? `组图：${numVariations} 张` : `方案数：${numVariations}`
-              }
+              label={`输出 ${numVariations} 张`}
               active={activeTool === "count"}
               disabled={isRunning}
               onClick={() => toggleTool("count")}
+            />
+            <ToolButton
+              icon="⚡"
+              label="美学评分"
+              active={activeTool === "aesthetic"}
+              disabled={isRunning}
+              onClick={() => toggleTool("aesthetic")}
             />
           </div>
 
@@ -507,45 +573,107 @@ export function ImageComposeWorkspace() {
           )}
 
           {activeTool === "count" && (
-            <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-black/40 px-3 py-2">
-              <label className="flex items-center gap-2 text-sm text-slate-200">
-                <input
-                  type="checkbox"
-                  checked={groupMode}
-                  onChange={(event) => setGroupMode(event.target.checked)}
-                  disabled={isRunning || primaryProvider !== "doubao_seedream"}
-                  className="h-5 w-5 accent-emerald-400 disabled:cursor-not-allowed"
-                />
-                <span>生成组图（风格连续）</span>
-                {primaryProvider !== "doubao_seedream" && (
-                  <span className="text-xs text-slate-500">仅豆包 Seedream 支持组图</span>
-                )}
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-200">
+            <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-slate-200">
+              <div className="space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
                   输出数量
                 </span>
-                <select
-                  value={numVariations}
-                  onChange={(event) => handleCountChange(Number(event.target.value))}
+                <p className="text-xs text-slate-500">单次最多 6 张，可重复生成挑选。</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleCountChange(numVariations - 1)}
                   disabled={isRunning}
-                  className="h-10 rounded-lg border border-white/10 bg-black/30 px-3 text-sm text-white outline-none transition focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/30 disabled:cursor-not-allowed disabled:text-slate-500"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg leading-none text-white transition hover:bg-emerald-400/30 disabled:cursor-not-allowed disabled:bg-white/5"
                 >
-                  {Array.from(
-                    { length: (groupMode ? 15 : 3) - (groupMode ? 2 : 1) + 1 },
-                    (_, idx) => (groupMode ? 2 : 1) + idx,
-                  ).map((item) => (
-                    <option key={item} value={item}>
-                      {groupMode ? `${item} 张` : `${item} 组`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <span className="text-xs text-slate-500">
-                {groupMode
-                  ? "豆包 Seedream 顺序生成，可一次输出最多 15 张风格连续的图片。"
-                  : "生成多组候选方案，便于快速挑选喜欢的构图。"}
-              </span>
+                  –
+                </button>
+                <span className="w-10 text-center text-lg font-semibold text-emerald-200">
+                  {numVariations}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCountChange(numVariations + 1)}
+                  disabled={isRunning}
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg leading-none text-white transition hover:bg-emerald-400/30 disabled:cursor-not-allowed disabled:bg-white/5"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTool === "aesthetic" && (
+            <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-black/40 px-3 py-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+                  美学评分模型
+                </span>
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1">
+                  <span className="text-xs text-emerald-300">⚡</span>
+                  <span className="text-xs font-medium text-emerald-200">已启用</span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {AESTHETIC_MODELS.map((model) => (
+                  <button
+                    key={model.id}
+                    type="button"
+                    onClick={() => setAestheticModel(model.id)}
+                    disabled={isRunning}
+                    className={`w-full rounded-lg border p-3 text-left transition ${
+                      aestheticModel === model.id
+                        ? "border-emerald-400/60 bg-emerald-400/10"
+                        : "border-white/10 bg-white/5 hover:border-emerald-400/40 hover:bg-white/10"
+                    } disabled:cursor-not-allowed disabled:opacity-50`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-white">{model.name}</span>
+                          {aestheticModel === model.id && (
+                            <span className="rounded-full bg-emerald-400/20 px-2 py-0.5 text-[10px] font-medium text-emerald-200">
+                              当前
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-slate-400">{model.description}</p>
+                      </div>
+                      {aestheticModel === model.id && (
+                        <svg
+                          className="h-5 w-5 text-emerald-400"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 p-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-emerald-400">ℹ️</span>
+                  <div className="flex-1 space-y-1 text-xs text-slate-300">
+                    <p className="font-medium text-emerald-200">评分维度</p>
+                    <ul className="space-y-0.5 text-slate-400">
+                      <li>• 结构合理性 - 手部、面部细节</li>
+                      <li>• 语义忠实度 - 提示词匹配度</li>
+                      <li>• 物理逻辑 - 光影、透视准确性</li>
+                      <li>• 画面纯净度 - 无伪影、噪点</li>
+                      <li>• 艺术美感 - 色彩、构图协调性</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -572,6 +700,7 @@ export function ImageComposeWorkspace() {
             result={result}
             stage={stage}
             stageLabel={stageLabel}
+            progressStep={progressStep}
             onRegenerate={handleRegenerate}
             loading={isRunning}
             providers={providerMap}
@@ -584,6 +713,11 @@ export function ImageComposeWorkspace() {
       </div>
 
       <ImagePreviewModal src={previewImage} onClose={() => setPreviewImage(null)} />
+      <SmartUploadModal
+        open={smartUploadModalOpen}
+        onClose={() => setSmartUploadModalOpen(false)}
+        onConfirm={handleSmartUpload}
+      />
     </div>
   );
 }
@@ -618,6 +752,7 @@ function ImageComposeResult({
   result,
   stage,
   stageLabel,
+  progressStep,
   onRegenerate,
   loading,
   providers,
@@ -629,6 +764,7 @@ function ImageComposeResult({
   result: ImageComposeResponse | null;
   stage: ComposeStageValue;
   stageLabel: string;
+  progressStep: number;
   onRegenerate: () => void;
   loading: boolean;
   providers: Record<string, ProviderInfo>;
@@ -665,7 +801,11 @@ function ImageComposeResult({
       transition={{ duration: 0.4, ease: "easeOut" }}
       className="flex min-h-[60vh] flex-col gap-5 rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-200 backdrop-blur-xl"
     >
-      <ComposeTimeline stage={stage} />
+      <GlobalProgressBar
+        steps={ECOMMERCE_STEPS}
+        currentStep={progressStep}
+        status={stage === ComposeStage.Completed ? "success" : "processing"}
+      />
       <div className="flex items-center justify-between text-xs text-slate-400">
         <span>当前进度：{stageLabel}</span>
         <div className="flex items-center gap-3 text-slate-500">
@@ -718,6 +858,15 @@ function ImageComposeResult({
         <div className="flex h-64 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-slate-500">
           暂无最佳候选
         </div>
+      )}
+
+      {bestItem && bestItem.composite_score !== undefined && (
+        <AestheticAnalysisCard
+          score={bestItem.composite_score || 0}
+          details={bestItem.scores || {}}
+          review={result.review}
+          isLoading={loading}
+        />
       )}
 
       <div className="flex flex-wrap gap-3">

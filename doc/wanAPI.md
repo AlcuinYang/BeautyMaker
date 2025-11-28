@@ -1,284 +1,246 @@
-# 通义千问 - 文生图（Qwen-Image）API 参考（精简整理版）
+# 通义万相 - 文生图 V2 API 参考（精简整理版）
 
-**文档更新时间：2025-11-12**
-模型支持复杂文本渲染、多行布局、段落级文本生成和精细细节刻画，适合通用海报、卡通风格、图文混排等生成需求。
+**文档同步时间：2025-10-28**
+基于阿里云 Model Studio 的文本生成图像（Text-to-Image）服务。
 
 ---
 
 # 1. 概述
 
-通义千问 Qwen-Image 支持通过 **同步 HTTP 接口** 直接返回生成图像，无需异步轮询。
+通义万相文生图 API 支持从文本生成图片，包含多种风格与摄影效果。
+当前 API 为 **异步接口**，完整流程包括：
 
-核心特性：
+1. **创建任务 → 获取 task_id**
+2. **轮询任务 → 获取生成图像 URL**
 
-* 多模态图像生成
-* 复杂文本布局（段落、标题、气泡等）
-* 更强的细节渲染能力
-* 提供 prompt 改写、反向提示词、水印控制等参数
-
----
-
-# 2. API Endpoint（同步接口）
-
-### 新加坡地域（推荐）
-
-```
-POST https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation
-```
-
-### 北京地域
-
-```
-POST https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation
-```
-
-> 注意：地域与 API Key **严格绑定**，不得跨地域混用。
+任务通常需 **1–2 分钟**（受排队影响）。
 
 ---
 
-# 3. Headers
+# 2. 模型列表与能力限制
 
-| Header                            | 必选 | 说明                     |
-| --------------------------------- | -- | ---------------------- |
-| `Content-Type: application/json`  | 是  | 必须为 `application/json` |
-| `Authorization: Bearer <API_KEY>` | 是  | 使用百炼 API Key 鉴权        |
+| 模型名称                       | 简介                             | 分辨率与格式                                    |
+| -------------------------- | ------------------------------ | ----------------------------------------- |
+| **wan2.5-t2i-preview（推荐）** | 取消单边限制；仅受总像素面积约束，可生成如 768×2700 | 总像素范围：768×768 ～ 1440×1440；宽高比 1:4–4:1；png |
+| **wan2.2-t2i-flash（推荐）**   | 2.2 极速版，速度较 2.1 快 50%          | 宽高：512–1440；png                           |
+| **wan2.2-t2i-plus（推荐）**    | 2.2 专业版，稳定性提升                  | png                                       |
+| wanx2.1-t2i-turbo          | 2.1 极速版                        | —                                         |
+| wanx2.1-t2i-plus           | 2.1 专业版                        | —                                         |
+| wanx2.0-t2i-turbo          | 2.0 极速版                        | —                                         |
+
+> 注意：北京与新加坡地域 API Key 与 Base URL 不可混用。
 
 ---
 
-# 4. 请求体结构（Request Body）
+# 3. API Endpoint
+
+### 创建任务（POST）
+
+* 新加坡：
+  `https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis`
+* 北京：
+  `https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis`
+
+### 查询任务（GET）
+
+* 新加坡：
+  `https://dashscope-intl.aliyuncs.com/api/v1/tasks/{task_id}`
+* 北京：
+  `https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}`
+
+---
+
+# 4. Headers
+
+| Header                            | 是否必需 | 含义               |
+| --------------------------------- | ---- | ---------------- |
+| `Content-Type: application/json`  | 必选   | 请求格式             |
+| `Authorization: Bearer <API_KEY>` | 必选   | API Key 鉴权       |
+| `X-DashScope-Async: enable`       | 必选   | 必须设置，否则报错不支持同步调用 |
+
+---
+
+# 5. 请求体说明（Request Body）
 
 ```json
 {
-  "model": "qwen-image-plus",
+  "model": "wan2.5-t2i-preview",
   "input": {
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          { "text": "一只坐着的橘黄色的猫，表情愉悦，活泼可爱，逼真准确。" }
-        ]
-      }
-    ]
+    "prompt": "一间有着精致窗户的花店，漂亮的木质门，摆放着花朵"
   },
   "parameters": {
-    "negative_prompt": "",
-    "prompt_extend": true,
-    "watermark": false,
-    "size": "1328*1328"
+    "size": "1024*1024",
+    "n": 1
   }
 }
 ```
 
 ---
 
-# 5. 字段说明
+## 5.1 字段详解
 
-## 5.1 model（必选）
+### model（必选）
 
-模型名称：
+模型名称，例如：
 
-| 模型                      | 说明                      |
-| ----------------------- | ----------------------- |
-| **qwen-image-plus（推荐）** | 与 qwen-image 能力一致，但价格更低 |
-| qwen-image              | 通用图像生成模型                |
+* `wan2.5-t2i-preview`
+* `wan2.2-t2i-flash`
 
 ---
 
 ## 5.2 input（必选）
 
-| 字段           | 类型     | 说明                   |
-| ------------ | ------ | -------------------- |
-| **messages** | array  | 单轮对话，仅允许一个元素         |
-| role         | string | 必须为 `user`           |
-| content      | array  | 内容数组，当前仅支持 `text`    |
-| text         | string | 正向提示词（≤800 字符），支持中英文 |
+| 字段                  | 必选 | 说明                                     |
+| ------------------- | -- | -------------------------------------- |
+| **prompt**          | 是  | 中英文均可。2.5 最大 2000 字符；2.2 及以下最大 800 字符。 |
+| **negative_prompt** | 否  | 不希望画面出现的内容，如“人物”。支持≤500字符。             |
 
-提示词应描述你期望的内容、风格、布局。例如：
+示例（带反向提示词）：
 
+```json
+"input": {
+  "prompt": "雪地，白色小教堂，极光，冬日场景，柔和的光线。",
+  "negative_prompt": "人物"
+}
 ```
-Healing-style poster of puppies playing ball on grass, cute and warm atmosphere...
-```
-
-错误示例：
-
-* content 传多个 text → 报错
-* 未传 text → 报错
 
 ---
 
 ## 5.3 parameters（可选）
 
-| 字段                  | 类型      | 说明                               |
-| ------------------- | ------- | -------------------------------- |
-| **negative_prompt** | string  | 反向提示词（≤500 字符）                   |
-| **size**            | string  | 输出分辨率，如 `1328*1328`              |
-| **n**               | integer | 固定为 **1**，否则报错                   |
-| **prompt_extend**   | bool    | 是否开启智能 prompt 改写（默认 `true`）      |
-| **watermark**       | bool    | 是否添加 “Qwen-Image” 水印（默认 `false`） |
-| **seed**            | int     | [0, 2147483647]，固定随机性            |
-
-默认分辨率与比例：
-
-| 分辨率           | 比例   |
-| ------------- | ---- |
-| 1664*928      | 16:9 |
-| 1472*1140     | 4:3  |
-| 1328*1328（默认） | 1:1  |
-| 1140*1472     | 3:4  |
-| 928*1664      | 9:16 |
+| 字段                | 类型     | 说明                                      |
+| ----------------- | ------ | --------------------------------------- |
+| **size**          | string | 格式：`宽*高`。不同模型有不同限制（见模型列表）。              |
+| **n**             | int    | 1–4 张，默认 4。直接影响费用。建议测试用 1。              |
+| **prompt_extend** | bool   | 是否开启智能提示词扩写。2.5 默认 false；2.2 以下默认 true。 |
+| **watermark**     | bool   | 是否添加水印（右下角 “AI生成”）。                     |
+| **seed**          | int    | 0–2147483647。用于结果可控性。n>1 时自动 seed+1 递增。 |
 
 ---
 
-# 6. 请求示例（curl）
+# 6. 响应示例（创建任务）
 
-```bash
-curl --location 'https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation' \
---header 'Content-Type: application/json' \
---header "Authorization: Bearer $DASHSCOPE_API_KEY" \
---data '{
-    "model": "qwen-image-plus",
-    "input": {
-      "messages": [
-        {
-          "role": "user",
-          "content": [
-            {
-              "text": "Healing-style hand-drawn poster featuring three puppies playing with a ball..."
-            }
-          ]
-        }
-      ]
-    },
-    "parameters": {
-      "negative_prompt": "",
-      "prompt_extend": true,
-      "watermark": false,
-      "size": "1328*1328"
-    }
-}'
-```
-
----
-
-# 7. 响应结构（Response）
-
-成功示例：
+成功：
 
 ```json
 {
   "output": {
-    "choices": [
-      {
-        "finish_reason": "stop",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "image": "https://dashscope-result-sz.oss-cn-shenzhen.aliyuncs.com/xxx.png?Expires=xxx"
-            }
-          ]
-        }
-      }
-    ],
-    "task_metric": {
-      "TOTAL": 1,
-      "FAILED": 0,
-      "SUCCEEDED": 1
-    }
+    "task_status": "PENDING",
+    "task_id": "0385dc79-5ff8-4d82-bcb6-xxxxxx"
   },
-  "usage": {
-    "width": 1328,
-    "image_count": 1,
-    "height": 1328
-  },
-  "request_id": "xxx"
+  "request_id": "4909100c-7b5a-9f92-bfe5-xxxxxx"
 }
 ```
 
-失败示例：
+失败（示例）：
 
 ```json
 {
-  "request_id": "xxx",
-  "code": "InvalidParameter",
-  "message": "num_images_per_prompt must be 1"
+  "code":"InvalidApiKey",
+  "message":"Invalid API-key provided.",
+  "request_id":"fb53c4ec-1c12-4fc4-a580-xxxxxx"
 }
 ```
 
 ---
 
-# 8. 字段说明（Output）
+# 7. 轮询任务结果（GET）
 
-## output.choices
+建议轮询间隔：**10 秒**
+任务状态流转：
 
-| 字段            | 含义                  |
-| ------------- | ------------------- |
-| image         | 生成图 URL（PNG，24h 有效） |
-| finish_reason | stop 表示正常结束         |
-| role          | assistant           |
+```
+PENDING → RUNNING → (SUCCEEDED / FAILED)
+```
 
-## usage
-
-| 字段             | 含义      |
-| -------------- | ------- |
-| image_count    | 当前固定 1  |
-| width / height | 输出图像分辨率 |
-
-## 任务有效期
-
-* 图像 URL 有效期 **24 小时**
-* 必须及时下载并保存
+成功后返回图像 URL（有效期 24h，请尽快下载到 OSS 或本地）。
 
 ---
 
-# 9. 常见错误与排查
+# 8. 图像 URL 使用说明
 
-| 错误码              | 原因                    |
-| ---------------- | --------------------- |
-| InvalidApiKey    | API Key 地域不匹配 / Key 错 |
-| InvalidParameter | n ≠ 1、text 缺失、尺寸非法    |
-| MissingParameter | 未传必选字段                |
-| BadRequest       | JSON 结构不合法            |
-
-更多请参考官方错误码文档。
+* 链接有效期：24 小时
+* 获取后应立即下载并转存
+* 推荐使用阿里云 OSS 作为持久化存储
 
 ---
 
-# 10. SDK 调用示例（Python）
+# 9. 常见分辨率推荐
 
-```python
-import os
-import dashscope
-from dashscope import MultiModalConversation
+| 比例   | 分辨率（示例）             |
+| ---- | ------------------- |
+| 1:1  | 1280×1280、1024×1024 |
+| 2:3  | 800×1200            |
+| 3:2  | 1200×800            |
+| 3:4  | 960×1280            |
+| 4:3  | 1280×960            |
+| 9:16 | 720×1280            |
+| 16:9 | 1280×720            |
+| 21:9 | 1344×576            |
 
-dashscope.base_http_api_url = 'https://dashscope-intl.aliyuncs.com/api/v1'
+---
 
-messages = [
-    {
-        "role": "user",
-        "content": [{"text": "一只橘猫，表情愉悦，坐在草地上"}]
-    }
-]
+# 10. Task 响应字段说明
 
-resp = MultiModalConversation.call(
-    model="qwen-image-plus",
-    messages=messages,
-    size="1328*1328"
-)
+| 字段                 | 含义                                                          |
+| ------------------ | ----------------------------------------------------------- |
+| `task_id`          | 创建任务时生成，24h 有效                                              |
+| `task_status`      | PENDING / RUNNING / SUCCEEDED / FAILED / CANCELED / UNKNOWN |
+| `request_id`       | 用于日志排查                                                      |
+| `code` / `message` | 错误信息（仅失败时返回）                                                |
 
-print(resp)
+---
+
+# 11. 错误排查
+
+常见报错：
+
+* **缺少 X-DashScope-Async** → current user api does not support synchronous calls
+* API Key 地域混用 → InvalidApiKey
+* 分辨率超限 → 参数校验错误
+
+详见官方错误码文档。
+
+---
+
+# 12. 示例：完整调用流程 (curl)
+
+### Step 1: 创建任务
+
+```bash
+curl -X POST https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis \
+-H 'X-DashScope-Async: enable' \
+-H "Authorization: Bearer $DASHSCOPE_API_KEY" \
+-H 'Content-Type: application/json' \
+-d '{
+    "model": "wan2.5-t2i-preview",
+    "input": { "prompt": "花店，木门，精致窗户，摆放着花朵" },
+    "parameters": { "size": "1024*1024", "n": 1 }
+}'
+```
+
+### Step 2: 查询任务结果
+
+```bash
+curl -X GET https://dashscope-intl.aliyuncs.com/api/v1/tasks/<task_id> \
+-H "Authorization: Bearer $DASHSCOPE_API_KEY"
 ```
 
 ---
 
-# 11. 注意事项
+# 13. 注意事项
 
-* 单次请求只能包含 **一个 messages 元素**
-* content 仅支持 **一个 text 字段**
-* n 参数被强制固定为 1
-* 水印默认关闭，可开启
-* 图像 URL 24h 失效，必须及时保存
-* prompt_extend 会增加 3–4 秒延迟
+* 不同地域 **API Key 不通用**
+* 建议使用 **固定 seed** 来改善可控性
+* prompt_extend 会增加延迟
+* n 越大费用越高，测试阶段务必用 1
 
 ---
+
+# 14. 参考链接
+
+* API Key 获取
+* 模型列表与价格
+* 文生图 Prompt 指南
+* OSS 持久化存储
 

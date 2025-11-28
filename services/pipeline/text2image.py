@@ -24,11 +24,11 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
-from services.common.models import GeneratedImage
+from services.common.models import ComparativeReview, GeneratedImage
 from services.generate import get_provider
 from services.generate.models import GenerateRequestPayload
+from services.reviewer.service import AestheticReviewer
 from services.scoring.aggregator import AggregationResult, ImageEvaluation, ScoringAggregator
-from services.scoring.holistic.doubao_client import DoubaoAestheticClient
 from services.selector.service import SelectorService
 
 logger = logging.getLogger(__name__)
@@ -86,13 +86,6 @@ class Text2ImagePipelineRequest(BaseModel):
         return self
 
 
-class ComparativeReview(BaseModel):
-    """Comparative review explaining why the best image won."""
-    title: str = Field(description="Short title explaining the winning reason (4-8 Chinese characters)")
-    analysis: str = Field(description="Detailed comparative analysis (~100 Chinese characters)")
-    key_difference: str = Field(description="1-2 key difference keywords")
-
-
 class Text2ImagePipelineResponse(BaseModel):
     """Response model for the text2image pipeline.
 
@@ -113,66 +106,6 @@ class Text2ImagePipelineResponse(BaseModel):
     )
     message: Optional[str] = Field(default=None, description="Error message if status is 'failed'")
 
-
-async def _generate_comparative_review(
-    *,
-    best_image: GeneratedImage,
-    best_eval: ImageEvaluation,
-    loser_image: GeneratedImage,
-    loser_eval: ImageEvaluation,
-    doubao_client: DoubaoAestheticClient,
-    best_label: str,
-    loser_label: str,
-) -> Optional[Dict[str, Any]]:
-    """
-    Generate a comparative review explaining why the best image won using AIGC-native metrics.
-    """
-    def fmt(score: Optional[float]) -> str:
-        """Format score to 1 decimal place on 0-10 scale."""
-        return f"{(score or 0) * 10:.1f}"
-
-    # Use AIGC-Native labels mapped to internal keys
-    user_prompt = f"""
-请作为 AIGC 质量质检专家，对比分析以下两张生成图片:
-
-【{best_label}（优胜图）】
-- 综合评分：{fmt(best_eval.composite_score)}/10
-- 结构合理性(手/脸)：{fmt(best_eval.module_scores.get('clarity_eval'))}/10
-- 语义忠实度：{fmt(best_eval.module_scores.get('quality_score'))}/10
-- 物理逻辑(光影/透视)：{fmt(best_eval.module_scores.get('contrast_score'))}/10
-- 画面纯净度：{fmt(best_eval.module_scores.get('noise_eval'))}/10
-
-【{loser_label}（参照图）】
-- 综合评分：{fmt(loser_eval.composite_score)}/10
-- 结构合理性(手/脸)：{fmt(loser_eval.module_scores.get('clarity_eval'))}/10
-- 语义忠实度：{fmt(loser_eval.module_scores.get('quality_score'))}/10
-- 物理逻辑(光影/透视)：{fmt(loser_eval.module_scores.get('contrast_score'))}/10
-- 画面纯净度：{fmt(loser_eval.module_scores.get('noise_eval'))}/10
-
-【任务要求】
-请根据上述评分差异，生成一段约 100 字的【对比点评】。
-1. **归因分析**：直接指出图片 A 在哪些维度胜出。**重点关注结构合理性**（如：优胜图手指结构完整，而参照图出现了肢体扭曲）。
-2. **缺陷指出**：明确指出图片 B 的主要 AIGC 瑕疵（如：伪影、逻辑错误、语义缺失）。
-3. **总结**：一句话总结 A 的获胜理由。
-
-【输出格式】
-严格 JSON：
-{{
-    "title": "胜出理由：[4-8字短标题]",
-    "analysis": "[对比分析内容]",
-    "key_difference": "[1-2个核心差异点关键词]"
-}}
-"""
-
-    try:
-        result = await doubao_client.compare_images(
-            image_urls=[best_image.url, loser_image.url],
-            prompt=user_prompt
-        )
-        return result
-    except Exception as e:
-        logger.warning("Failed to generate comparative review: %s", e)
-        return None
 
 async def run_text2image_pipeline(payload: Text2ImagePipelineRequest) -> Dict[str, Any]:
     """High-level entry that runs the full t2i orchestration."""
@@ -211,36 +144,10 @@ async def run_text2image_pipeline(payload: Text2ImagePipelineRequest) -> Dict[st
         # Generate comparative review if we have multiple candidates
         review = None
         if aggregation and len(candidates) > 1:
-            # Find the loser (lowest composite score)
-            loser_image = None
-            loser_eval = None
-            min_score = float('inf')
-
-            for candidate in candidates:
-                if candidate.url == best_image.url:
-                    continue
-                eval_result = aggregation.image_results.get(candidate.url)
-                if eval_result and eval_result.composite_score < min_score:
-                    min_score = eval_result.composite_score
-                    loser_image = candidate
-                    loser_eval = eval_result
-
-            # Generate review if we have both winner and loser
-            if loser_image and loser_eval and best_evaluation:
-                doubao_client = DoubaoAestheticClient()
-                best_idx = next((idx for idx, img in enumerate(candidates) if img.url == best_image.url), -1)
-                loser_idx = next((idx for idx, img in enumerate(candidates) if img.url == loser_image.url), -1)
-                best_label = f"候选{best_idx + 1}" if best_idx >= 0 else "候选A"
-                loser_label = f"候选{loser_idx + 1}" if loser_idx >= 0 else "候选B"
-                review = await _generate_comparative_review(
-                    best_image=best_image,
-                    best_eval=best_evaluation,
-                    loser_image=loser_image,
-                    loser_eval=loser_eval,
-                    doubao_client=doubao_client,
-                    best_label=best_label,
-                    loser_label=loser_label,
-                )
+            reviewer = AestheticReviewer()
+            review_result = await reviewer.review_candidates(candidates, aggregation.image_results)
+            if review_result:
+                review = review_result.model_dump()
 
         response = {
             "status": "success",

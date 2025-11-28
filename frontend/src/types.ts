@@ -152,6 +152,11 @@ export interface PipelineResponse {
   best_image_url?: string;
   candidates?: PipelineCandidate[];
   best_composite_score?: number;
+  review?: {
+    title?: string;
+    analysis?: string;
+    key_difference?: string;
+  };
   summary?: string;
   prompt?: PipelinePromptInfo;
   providers_used?: string[];
@@ -183,6 +188,12 @@ export interface ImageComposeResponse {
   providers_used?: string[];
   group_mode?: boolean;
   message?: string;
+  aesthetic_score?: number;
+  review?: {
+    title: string;
+    analysis: string;
+    key_difference: string;
+  };
 }
 
 export interface GalleryItem {

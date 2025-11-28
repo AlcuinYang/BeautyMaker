@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List
 from uuid import UUID
 
+from pydantic import BaseModel, Field
+
 
 @dataclass(slots=True)
 class GeneratedImage:
@@ -22,3 +24,10 @@ class GenerationResult:
     task_id: UUID
     provider: str
     images: List[GeneratedImage]
+
+
+class ComparativeReview(BaseModel):
+    """Comparative review explaining why the best image won."""
+    title: str = Field(description="Short title explaining the winning reason (4-8 Chinese characters)")
+    analysis: str = Field(description="Detailed comparative analysis (~100 Chinese characters)")
+    key_difference: str = Field(description="1-2 key difference keywords")

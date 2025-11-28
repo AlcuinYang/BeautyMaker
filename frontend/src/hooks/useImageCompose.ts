@@ -21,6 +21,8 @@ type ComposePayload = {
     num_variations?: number;
     image_size?: string;
     group_mode?: boolean;
+    category?: "standing" | "flat" | "other";
+    use_auto_segmentation?: boolean;
   };
 };
 

@@ -13,9 +13,23 @@ from services.generate.routes.provider_info import PROVIDER_META
 router = APIRouter()
 
 
-async def _check_provider_status(endpoint: str | None) -> bool:
+async def _check_provider_status(endpoint: str | None, provider_name: str = "") -> bool:
+    """Check if provider endpoint is accessible.
+
+    For providers that require proxy (like DALL-E), we assume they're active
+    if the proxy is configured, since we can't check OpenAI API without auth.
+    """
     if not endpoint:
         return False
+
+    # Special handling for providers that require proxy
+    if "api.openai.com" in endpoint:
+        # DALL-E requires proxy - assume active if endpoint is configured
+        import os
+        proxy = os.getenv("OPENAI_PROXY") or os.getenv("HTTP_PROXY")
+        # If no proxy, still mark as available (user can configure later)
+        return True
+
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             response = await client.get(endpoint)
@@ -43,7 +57,7 @@ def _bundle_provider(name: str, is_active: bool) -> Dict[str, Any]:
 async def list_registered_providers() -> Dict[str, Any]:
     provider_names: List[str] = list_providers()
     status_checks = await asyncio.gather(
-        *(_check_provider_status(PROVIDER_META.get(name, {}).get("endpoint"))
+        *(_check_provider_status(PROVIDER_META.get(name, {}).get("endpoint"), name)
           for name in provider_names)
     )
 

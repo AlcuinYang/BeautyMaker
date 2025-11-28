@@ -16,6 +16,7 @@ export function TextToImageWorkspace() {
   const [ratio, setRatio] = useState("1:1");
   const [formError, setFormError] = useState<string | null>(null);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
+  const [aestheticModel, setAestheticModel] = useState("mnet_v1");
 
   const { stage, result, error, isRunning, runPipeline, reset } = usePipeline();
 
@@ -41,33 +42,53 @@ export function TextToImageWorkspace() {
       .then((data) => {
         if (!mounted) return;
 
-        const allowedIds = new Set(["qwen", "wan", "nano_banana"]);
+        const allowedIds = new Set(["wan", "doubao_seedream"]);
         const filtered = data.filter((item) => allowedIds.has(item.id));
 
-        const doubaoProvider: ProviderInfo = {
-          id: "doubao_seedream",
-          display_name: "豆包 · Seedream",
-          description: "ByteDance Doubao Seedream 文生图模型。",
-          category: "image_generation",
-          is_free: false,
-          is_active: true,
-          icon: null,
-          endpoint: "https://www.doubao.com/seeds/dream",
-          latency_ms: null,
-        };
+        const fallbackProviders: ProviderInfo[] = [
+          {
+            id: "wan",
+            display_name: "Tongyi Wanxiang (Wan)",
+            description: "阿里通义万相图生图",
+            category: "image_generation",
+            is_free: false,
+            is_active: true,
+            icon: null,
+            endpoint: "",
+            latency_ms: null,
+          },
+          {
+            id: "doubao_seedream",
+            display_name: "豆包 · Seedream",
+            description: "ByteDance Doubao Seedream 文生图模型。",
+            category: "image_generation",
+            is_free: false,
+            is_active: true,
+            icon: null,
+            endpoint: "https://www.doubao.com/seeds/dream",
+            latency_ms: null,
+          },
+        ];
 
-        if (!filtered.some((item) => item.id === doubaoProvider.id)) {
-          filtered.push(doubaoProvider);
-        }
+        const mergedMap: Record<string, ProviderInfo> = {};
+        [...filtered, ...fallbackProviders].forEach((item) => {
+          if (allowedIds.has(item.id)) {
+            mergedMap[item.id] = item;
+          }
+        });
 
-        setProviders(filtered);
+        const mergedProviders = Object.values(mergedMap);
+        setProviders(mergedProviders);
 
         setSelectedProviders((current) => {
-          const validCurrent = current.filter((id) => filtered.some((item) => item.id === id));
+          const validCurrent = current.filter((id) => mergedProviders.some((item) => item.id === id));
           if (validCurrent.length > 0) {
             return validCurrent;
           }
-          const defaultProvider = filtered.find((item) => item.id === "qwen") ?? filtered[0];
+          const defaultProvider =
+            mergedProviders.find((item) => item.id === "wan") ??
+            mergedProviders.find((item) => item.id === "doubao_seedream") ??
+            mergedProviders[0];
           return defaultProvider ? [defaultProvider.id] : [];
         });
       })
@@ -195,11 +216,13 @@ export function TextToImageWorkspace() {
           onNumCandidatesChange={setNumCandidates}
               ratio={ratio}
               onRatioChange={setRatio}
-              providers={providers}
-              providerMap={providerMap}
-              providersLoading={providersLoading}
-              selectedProviders={selectedProviders}
-              onAddProvider={handleAddProvider}
+          providers={providers}
+          providerMap={providerMap}
+          providersLoading={providersLoading}
+          selectedProviders={selectedProviders}
+          onAddProvider={handleAddProvider}
+          aestheticModel={aestheticModel}
+          onAestheticModelChange={setAestheticModel}
           onRemoveProvider={handleRemoveProvider}
           onSubmit={handleRun}
           disabled={isRunning}
