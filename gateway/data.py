@@ -68,22 +68,6 @@ APPLICATIONS: List[Dict[str, Any]] = [
     #     "category": "style",
     #     "modules": ["color_score", "quality_score"],
     # },
-    {
-        "id": "aesthetic-workspace",
-        "slug": "aesthetic-workspace",
-        "title": "Aesthetic Workspace",
-        "author": "Aesthetic Lab",
-        "cover": "/covers/aesthetic-workspace.png",
-        "desc": "人物模特生成与美学作品展示的一体化创作台。",
-        "tags": ["人物模特", "美学图库", "灵感"],
-        "likes": 628,
-        "views": 3190,
-        "category": "image",
-        "modules": [
-            "holistic",
-            "quality_score",
-        ],
-    },
 ]
 
 APP_TEMPLATES: Dict[str, Dict[str, Any]] = {

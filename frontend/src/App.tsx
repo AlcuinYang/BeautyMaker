@@ -4,7 +4,6 @@ import AiDetailPage from "./pages/ai-detail/[id]";
 import ModelSelectorPage from "./pages/model-selector";
 import GeneratePage from "./pages/generate";
 import ImageComposePage from "./pages/image-compose";
-import AestheticWorkspacePage from "./pages/aesthetic-workspace";
 
 function App() {
   return (
@@ -22,9 +21,6 @@ function App() {
               <Link to="/ai-application" className="transition hover:text-emerald-300">
                 应用广场
               </Link>
-              <Link to="/workspace" className="transition hover:text-emerald-300">
-                Aesthetic Workspace
-              </Link>
               <Link to="/profile" className="transition hover:text-emerald-300">
                 个人中心
               </Link>
@@ -38,7 +34,6 @@ function App() {
           <Route path="/model-selector" element={<ModelSelectorPage />} />
           <Route path="/generate" element={<GeneratePage />} />
           <Route path="/image-compose" element={<ImageComposePage />} />
-          <Route path="/workspace" element={<AestheticWorkspacePage />} />
           <Route path="/ai-detail/:id" element={<AiDetailPage />} />
           <Route
             path="*"

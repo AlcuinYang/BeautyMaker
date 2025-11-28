@@ -57,8 +57,6 @@ export function ApplicationCardGrid({
             targetHref = "/generate";
           } else if (app.id === "image-compose") {
             targetHref = "/image-compose";
-          } else if (app.id === "aesthetic-workspace") {
-            targetHref = "/workspace";
           }
           return (
           <motion.div

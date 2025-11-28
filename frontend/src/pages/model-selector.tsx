@@ -55,26 +55,37 @@ export default function ModelSelectorPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#07070a] text-white">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 pb-20 pt-16 md:px-10">
-        <motion.header
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
-          className="space-y-5"
-        >
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs uppercase tracking-[0.3em] text-slate-400">
-            Model Selector · Aesthetic Engine
-          </span>
-          <div className="space-y-4">
-            <h1 className="text-4xl font-semibold tracking-tight text-white md:text-5xl">
-              选择你想使用的模型
+    <div className="min-h-screen bg-[#0a0a0f] text-white">
+      <div className="relative w-full overflow-hidden bg-slate-950">
+        <div className="absolute -left-20 -top-24 h-[500px] w-[500px] rounded-full bg-[#7B61FF]/20 blur-[120px] z-0" />
+        <div className="absolute bottom-[-80px] right-[-30px] h-[400px] w-[400px] rounded-full bg-[#00E5FF]/15 blur-[100px] z-0" />
+        <div className="relative z-10 mx-auto flex min-h-[70vh] w-full max-w-6xl flex-col items-center justify-center px-6 py-20 text-center md:px-10">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+            className="flex flex-col items-center"
+          >
+            <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-medium tracking-[0.3em] text-white/70 backdrop-blur-md">
+              MODEL SELECTOR · AESTHETIC ENGINE
+            </span>
+            <h1 className="mb-6 text-5xl font-bold tracking-tight text-white drop-shadow md:text-7xl">
+              多模型一站式 AI 创作与工作流中心
             </h1>
-            <p className="max-w-2xl text-base leading-relaxed text-slate-400">
-              从免费模型到实验室模块，挑选最适合当前任务的 AI 能力。我们会自动统一输入输出格式，让你专注于创造灵感。
+            <p className="mb-10 max-w-2xl text-xl leading-relaxed text-slate-400">
+              重构电商美学，让 AI 更懂商业摄影。
             </p>
-          </div>
-        </motion.header>
+            <button
+              type="button"
+              className="rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-cyan-500/25 transition-transform hover:scale-105"
+              onClick={() => navigate("/ai-application")}
+            >
+              立即开始创作
+            </button>
+          </motion.div>
+        </div>
+      </div>
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 pb-20 pt-16 md:px-10">
 
         {loading ? (
           <div className="flex h-72 items-center justify-center rounded-3xl border border-white/10 bg-white/5">
