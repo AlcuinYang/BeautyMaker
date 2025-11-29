@@ -1,291 +1,576 @@
 # AestheticsEngine · 美学引擎
 
-AI-native workflow for **multi-provider image generation**, **aesthetic evaluation**, and **e-commerce creative pipelines**.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10+-blue.svg"/>
+  <img src="https://img.shields.io/badge/React-19.1-61DAFB.svg"/>
+  <img src="https://img.shields.io/badge/FastAPI-0.110+-009688.svg"/>
+  <img src="https://img.shields.io/badge/License-MIT-green.svg"/>
+</p>
 
-[中文说明](#中文说明)
+**AI-native platform for multi-provider image generation and aesthetic evaluation research**
 
----
+**AI 原生多模型图像生成与美学评估研究平台**
 
-## ✨ Feature Highlights
-
-- **Smart Pipelines**
-  - `text2image`: multi-provider parallel generation → Doubao Vision scoring → automatic best-shot selection & comparative review.
-  - `image2image`: reference analysis → prompt fusion → sequential generation (Seedream i2i) → consistency check → scoring.
-- **AIGC-Native Metrics**: 5 visible dimensions + holistic score with Chinese comments; labels unified across radar charts, candidate list, and API responses.
-- **Smart Upload UX**: category selection → shooting guide → drag & drop upload → preview + confirmation.
-- **Global Progress Bar**: fake-progress simulation (steps 0–2), hold during generation, fast-forward (3–5) once the API returns.
-- **Provider Abstraction Layer**: 13+ adapters (Qwen, Doubao Seedream, Wanxiang, Nano Banana, OpenAI DALL·E, etc.) with per-provider retry logic.
-- **Developer-Ready APIs**: FastAPI entrypoints, async httpx clients, JSONL execution logs, and typed models for every request/response.
+[English](#english) · [中文](#中文)
 
 ---
 
-## 🏗️ Architecture Overview
+## English
+
+### Overview
+
+AestheticsEngine is a research platform exploring **aesthetic model applications** through multi-provider image generation and AI-powered quality evaluation. It addresses key challenges in AIGC workflows:
+
+- **Multi-provider coordination**: Parallel generation across 6+ providers (DALL-E, Qwen, Seedream, Gemini, Stable Diffusion)
+- **Objective quality assessment**: AI-driven evaluation of AIGC-specific defects (anatomical errors, artifacts, physics violations)
+- **Automated selection**: Best candidate identification with comparative analysis
+- **Research infrastructure**: JSONL logging, modular scoring, extensible provider architecture
+
+### Architecture
 
 ```
-Client (React 19 + Vite)
-│  ├─ Smart Upload, Text2Image Workspace, ImageCompose Workspace
-│  └─ /frontend/src/components /hooks /lib
-│
-API Gateway (FastAPI)
-│  ├─ /v1/pipeline/text2image
-│  ├─ /v1/pipeline/image2image
-│  ├─ /v1/aesthetic
-│  └─ /api/providers /api/apps
-│
-Orchestrator
-│  ├─ services/pipeline/text2image.py
-│  ├─ services/pipeline/image2image.py
-│  └─ services/scoring/aggregator.py
-│
-Service Layer
-│  ├─ Generation adapters (services/generate/adapters/*)
-│  ├─ Doubao scoring client (services/scoring/holistic)
-│  ├─ Selector service
-│  └─ Reviewer / tools
-└─ Logs
-   ├─ logs/doubao_events.jsonl
-   └─ logs/pipeline_runs.jsonl
+┌─────────────────────────────────────────────────────────┐
+│  Frontend (React 19 + Vite + Tailwind)                  │
+│  ├─ Text2Image Workspace                                │
+│  ├─ Image2Image Workspace                               │
+│  └─ Aesthetic Analysis Dashboard                        │
+└─────────────────┬───────────────────────────────────────┘
+                  │ REST API
+┌─────────────────┴───────────────────────────────────────┐
+│  API Gateway (FastAPI)                                   │
+│  ├─ /v1/pipeline/text2image                             │
+│  ├─ /v1/pipeline/image2image                            │
+│  └─ /api/providers                                      │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+┌─────────────────┴───────────────────────────────────────┐
+│  Service Orchestrator                                    │
+│  ├─ Text2Image Pipeline (parallel generation)           │
+│  ├─ Image2Image Pipeline (reference analysis)           │
+│  └─ Scoring Aggregator (Doubao Vision + fallbacks)      │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+┌─────────────────┴───────────────────────────────────────┐
+│  Provider Layer (6 adapters)                             │
+│  ├─ DALL-E (OpenRouter)      ├─ Qwen (DashScope)       │
+│  ├─ Nano Banana (OpenRouter) ├─ Wan (DashScope)        │
+│  ├─ Doubao Seedream (ARK)    └─ Stable Diffusion       │
+└─────────────────────────────────────────────────────────┘
 ```
 
----
+### Core Features
 
-## 🚀 Quick Start
+#### 1. Multi-Provider Generation
+- **Text2Image Pipeline**: Parallel generation across 1-4 providers, automatic retry with semaphore control
+- **Image2Image Pipeline**: Reference analysis → prompt fusion → consistency verification
+- **Sequential Generation**: Seedream 4.0 supports up to 15 images in one API call
 
-### Backend
+#### 2. Aesthetic Evaluation System
+**Primary Scorer: Doubao Vision** (ByteDance multimodal LLM)
+- 5 AIGC-specific dimensions + holistic score (1-10 scale)
+- Structured JSON output with Chinese commentary
+- Veto mechanism: Anatomical errors automatically cap final score
 
+**Scoring Dimensions**:
+| Dimension | Internal Key | Description |
+|-----------|--------------|-------------|
+| 语义忠实度 | `quality_score` | Prompt adherence |
+| 结构合理性 | `clarity_eval` | Anatomical integrity (hands, faces) |
+| 物理逻辑 | `contrast_score` | Light, shadow, perspective |
+| 画面纯净度 | `noise_eval` | Artifacts, noise, garbled text |
+| 艺术美感 | `color_score` | Composition, color harmony |
+| 综合评分 | `holistic` | Weighted average |
+
+**Formula**:
+```
+final_score = 0.3 × anatomical_integrity
+            + 0.3 × prompt_adherence
+            + 0.2 × aesthetic_value
+            + 0.2 × cleanliness
+
+IF anatomical_integrity < 6.0:
+    final_score = min(final_score, 5.0)  # Veto mechanism
+```
+
+**Fallback Strategy**: Doubao Vision → MNet holistic → Placeholder modules
+
+#### 3. Comparative Review
+- AI-generated explanations comparing best vs worst candidates
+- Evidence-based analysis citing specific scores
+- Context-aware prompts (artistic vs commercial)
+
+#### 4. Provider Ecosystem
+
+| Provider | Model | API | Capabilities |
+|----------|-------|-----|--------------|
+| DALL-E | GPT-5-Image | OpenRouter | text2image |
+| Nano Banana | Gemini-3-Pro-Image | OpenRouter | text2image, image2image |
+| Qwen | Qwen-Image | DashScope | text2image, image2image |
+| Wan | Wanxiang 2.5 | DashScope | text2image, image2image |
+| Seedream | Seedream 4.0 | ARK | text2image, image2image, sequential |
+| Stable Diffusion | SDXL | Self-hosted | text2image |
+
+### Quick Start
+
+#### Prerequisites
+- Python 3.10+
+- Node.js 20.19+
+- API Keys: At least `ARK_API_KEY` (for scoring) + one generation provider
+
+#### Backend Setup
 ```bash
-git clone git@github.com:AlcuinYang/BeautyMaker.git
-cd BeautyMaker
+git clone https://github.com/AlcuinYang/AestheticsEngine.git
+cd AestheticsEngine
 
-python3.10 -m venv .venv && source .venv/bin/activate
+python3.10 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
 pip install -e .[dev]
 
-export ARK_API_KEY="Bearer xxx"          # Seedream + Vision
-export DASHSCOPE_API_KEY="sk-xxx"        # Tongyi Qianwen / Wanxiang
-export OPENAI_API_KEY="sk-xxx"           # DALL·E (optional)
-export HOLISTIC_MODEL="doubao-seed-1-6-vision"
+# Required: Doubao for scoring
+export ARK_API_KEY="Bearer YOUR_DOUBAO_KEY"
+export HOLISTIC_MODEL="doubao-seed-1-6-vision-250815"
 export HOLISTIC_PROMPT="prompts/doubao_aesthetic.prompt"
 
-uvicorn gateway.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-- Docs: `http://localhost:8000/docs`
-- JSON logs: `logs/doubao_events.jsonl`, `logs/pipeline_runs.jsonl`
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev   # http://localhost:5173 (uses VITE_AE_API or default 8000)
-```
-
----
-
-## ⚙️ Pipelines & Flows
-
-### 1. Text-to-Image (`services/pipeline/text2image.py`)
-1. (Optional) Prompt expansion stub.
-2. Parallel generation across selected providers, each with semaphore + retry.
-3. `ScoringAggregator` executes Doubao holistic scoring (and fallback modules), storing per-image results.
-4. `SelectorService` identifies the best candidate.
-5. Optional comparative review (Doubao Vision compares winner vs. lowest score).
-6. Response: best image, candidates with module-level scores, summary, review, prompt metadata.
-
-### 2. Image-to-Image (`services/pipeline/image2image.py`)
-1. Reference analysis via Doubao Vision (platform / product / style keywords).
-2. Provider-specific generation (Seedream sequential mode, others one-by-one).
-3. Consistency verification (candidate vs reference) via Doubao chat completion.
-4. Scoring aggregator + ordered results (group mode available).
-5. Pipeline events logged to JSONL for observability.
-6. Frontend consumes results via `useImageCompose` hook and `ImageComposeWorkspace`.
-
-### 3. Aesthetic Scoring (`services/scoring/`)
-- Doubao Vision prioritized; fallback modules (MNet, placeholder services) keep pipeline alive.
-- Score normalization: Doubao returns 1–10 → normalized to 0–1 internally → 1–10 shown on UI.
-- Dimension mapping (internal → Display):
-  - `contrast_score` → 物理逻辑
-  - `color_score` → 艺术美感
-  - `clarity_eval` → 结构合理性
-  - `quality_score` → 语义忠实度
-  - `noise_eval` → 画面纯净度
-  - `holistic` → 综合评分
-
----
-
-## 🧩 Frontend Modules
-
-- `TextToImageWorkspace.tsx`: model selection, prompt input, reference uploads, pipeline timeline, candidate comparisons, `AestheticAnalysisCard`.
-- `ImageComposeWorkspace.tsx`: Smart Upload modal, ratio/model/quantity controls, global progress bar integration, sequential results gallery.
-- `SmartUploadModal.tsx`: multi-step UX with drag & drop, guide text, preview & confirm.
-- `GlobalProgressBar.tsx`: animated step indicator with statuses (`idle`, `processing`, `success`).
-- `hooks/usePipeline.ts` & `hooks/useImageCompose.ts`: orchestrate API calls, stage handling, error management.
-- `constants/aigcMetrics.ts` & `lib/constants.ts`: single source for metric labels & ordering.
-
----
-
-## 🔧 Environment Variables
-
-| Variable | Purpose |
-| --- | --- |
-| `ARK_API_KEY` | Doubao Seedream & Vision API (prefixed with `Bearer `) |
-| `DASHSCOPE_API_KEY` | Tongyi Qianwen / Wanxiang generation |
-| `OPENAI_API_KEY` | DALL·E provider (optional) |
-| `HOLISTIC_MODEL` | Doubao scoring model id |
-| `HOLISTIC_PROMPT` | Path to scoring prompt file |
-| `GLOBAL_HTTP_PROXY` | Optional proxy for outbound HTTP |
-| `VITE_AE_API` | Frontend → Backend base URL |
-
----
-
-## 📁 Key Directories
-
-```
-frontend/
-  src/components/          # Workspaces, cards, modals, global UI
-  src/hooks/               # Pipeline hooks
-  src/lib/                 # API client, constants
-  src/pages/               # Route-level containers
-
-services/
-  generate/adapters/       # Provider implementations
-  scoring/                 # Aggregator + Doubao clients
-  pipeline/                # Text2Image / Image2Image orchestrators
-  selector/                # Best-candidate logic
-
-gateway/
-  main.py                  # FastAPI app
-  orchestrator.py          # Pipeline router
-  data.py                  # Mock endpoints for frontend
-```
-
----
-
-## 🧪 Development Workflow
-
-```bash
-# Type checking, linting, and tests
-ruff check .
-pytest
-
-# Run specific pipeline tests
-pytest tests/test_pipeline_endpoint.py::test_text2image_pipeline -v
-pytest tests/test_pipeline_endpoint.py::test_image2image_pipeline -v
-```
-
-- Provider testing: `pytest tests/Qwen_test.py -v`
-- Observe Doubao API calls: `tail -f logs/doubao_events.jsonl | jq '.'`
-- Observe pipeline events: `tail -f logs/pipeline_runs.jsonl | jq '.'`
-
----
-
-## 🤝 Contributing
-
-1. Fork + branch.
-2. Follow `CONTRIBUTING.md` (adapter structure, logging rules, type hints, async conventions).
-3. Run tests + lint.
-4. Submit PR with context (feature, bug fix, integration).
-
-> This repository is optimized for multi-AI collaboration (Claude, GPT, local models). See `AGENTS.md` for assistant-specific instructions.
-
----
-
-## 📄 License
-
-MIT License © 2024 BeautyMaker Team.
-
----
-
-## 中文说明
-
-### 项目简介
-
-AestheticsEngine（美学引擎）面向电商创意、AI 运营和美学质检场景，提供“多模型生成 + 豆包评分 + 智能选优”的一体化管线。前端支撑 Smart Upload、文生图、图生图等工作台，后端基于 FastAPI + 异步 orchestrator 完成生成与评分调度。
-
-### 核心能力
-
-- **双管线：**
-  - 文生图（text2image）：多提供商并行 → 豆包 Vision 评分 → 最优候选 + 中文对比点评。
-  - 图生图（image2image）：参考图分析 → 顺序生成（Seedream sequential）→ 一致性检测 → 美学评分。
-- **美学评分：** 物理逻辑 / 艺术美感 / 结构合理性 / 语义忠实度 / 画面纯净度 / 综合分，全程中文点评，UI 与 API 维度统一。
-- **智能交互：** Smart Upload 三步流程、全局进度条假进度（0→2）+ 快速收尾（3→5）、候选卡 / 雷达图一致显示 AIGC 指标。
-- **多提供商抽象：** 内置 Qwen、豆包 Seedream、通义万相、Nano Banana、OpenAI DALL·E 等适配器，支持信号量 + 重试机制。
-- **可观测性：** `logs/doubao_events.jsonl` 记录豆包调用，`logs/pipeline_runs.jsonl` 记录管线执行摘要。
-
-### 快速开始
-
-#### 后端
-
-```bash
-git clone git@github.com:AlcuinYang/BeautyMaker.git
-cd BeautyMaker
-python3.10 -m venv .venv && source .venv/bin/activate
-pip install -e .[dev]
-
-export ARK_API_KEY="Bearer xxx"
-export DASHSCOPE_API_KEY="sk-xxx"
-export OPENAI_API_KEY="sk-xxx"
-export HOLISTIC_MODEL="doubao-seed-1-6-vision"
-export HOLISTIC_PROMPT="prompts/doubao_aesthetic.prompt"
+# Optional: Generation providers
+export DASHSCOPE_API_KEY="sk-YOUR_DASHSCOPE_KEY"    # Qwen, Wan
+export OPENROUTER_API_KEY="sk-YOUR_OPENROUTER_KEY"  # DALL-E, Nano Banana
 
 uvicorn gateway.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-#### 前端
+API Docs: http://localhost:8000/docs
 
+#### Frontend Setup
 ```bash
 cd frontend
 npm install
-npm run dev   # http://localhost:5173
+npm run dev  # http://localhost:5173
 ```
 
-### 架构图
+Optional: Set `VITE_AE_API=http://localhost:8000` for custom backend URL
 
-```
-前端 (React + Vite)
- ├─ Smart Upload / 文生图 / 图生图 / Progress Bar
- └─ hooks (usePipeline / useImageCompose)
+### Usage Example
 
-API 网关 (FastAPI)
- ├─ /v1/pipeline/text2image
- ├─ /v1/pipeline/image2image
- └─ /api/providers /api/apps
-
-服务编排
- ├─ services/pipeline/text2image.py
- ├─ services/pipeline/image2image.py
- └─ services/scoring/aggregator.py
-
-服务层
- ├─ generate/adapters/* (13+ provider)
- ├─ scoring/holistic/doubao_client.py
- └─ selector/service.py
-
-日志
- ├─ logs/doubao_events.jsonl
- └─ logs/pipeline_runs.jsonl
-```
-
-### 目录速览
-
-- `frontend/src/components`：工作台、上传模态、候选卡、雷达图等。
-- `frontend/src/hooks`：`usePipeline.ts`、`useImageCompose.ts` 控制阶段、错误、复位。
-- `services/generate/adapters`：Qwen、Seedream、Wanxiang 等适配器。
-- `services/pipeline`：文生图 / 图生图 orchestrator。
-- `services/scoring`：评分聚合、Doubao 客户端。
-- `gateway/main.py`：FastAPI 实例；`gateway/data.py` 为前端 mock 数据。
-
-### 常见命令
-
+#### Text2Image API
 ```bash
-ruff check .
-pytest
-pytest tests/test_pipeline_endpoint.py::test_text2image_pipeline -v
-pytest tests/test_pipeline_endpoint.py::test_image2image_pipeline -v
+curl -X POST http://localhost:8000/v1/pipeline/text2image \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "A serene Japanese garden with cherry blossoms",
+    "providers": ["dalle", "qwen", "nano_banana"],
+    "num_candidates": 3,
+    "params": {"ratio": "16:9"}
+  }'
 ```
 
-### 贡献说明
+**Response**:
+```json
+{
+  "best_image_url": "data:image/png;base64,...",
+  "best_provider": "dalle",
+  "candidates": [
+    {
+      "provider": "dalle",
+      "image_url": "...",
+      "composite_score": 0.87,
+      "scores": {
+        "quality_score": 0.9,
+        "clarity_eval": 0.85,
+        "contrast_score": 0.88,
+        "noise_eval": 0.92,
+        "color_score": 0.83,
+        "holistic": 0.87
+      },
+      "comments": {
+        "quality_score": "提示词还原度高",
+        "clarity_eval": "结构完整无缺陷",
+        ...
+      }
+    }
+  ],
+  "review": "Image A scored 9.0 in composition vs Image B's 6.8..."
+}
+```
 
-- 遵循 `CONTRIBUTING.md`：适配器拆分、日志脱敏、类型注解、异步请求。
-- 前端统一 TypeScript + Tailwind，指标名称自 `constants/aigcMetrics.ts` / `lib/constants.ts`。
-- 欢迎提交 Issue / PR 与我们共建美学引擎。若需更详细资料，请查阅 `doc/项目完整文档.md`、`doc/PIPELINE_GUIDE.md`。
+### Development
+
+#### Testing
+```bash
+# Backend
+pytest                                                   # All tests
+pytest tests/test_pipeline_endpoint.py -v               # Pipeline tests
+ruff check .                                             # Linting
+
+# Frontend
+cd frontend
+npm run lint                                             # ESLint
+npm run build                                            # Production build
+```
+
+#### Monitoring Logs
+```bash
+tail -f logs/doubao_events.jsonl | jq '.'     # Doubao API calls
+tail -f logs/pipeline_runs.jsonl | jq '.'     # Pipeline executions
+```
+
+### Adding New Providers
+
+**3-Step Process**:
+
+1. **Create Adapter** (`services/generate/adapters/your_provider.py`)
+```python
+from services.generate.adapters.base import BaseProvider
+from services.generate.models import GenerateRequestPayload
+
+class YourProvider(BaseProvider):
+    name = "your_provider"
+
+    async def generate(self, request: GenerateRequestPayload):
+        # Implementation
+        return {"status": "success", "images": [...], "metadata": {...}}
+```
+
+2. **Register** (`services/generate/__init__.py`)
+```python
+from services.generate.adapters.your_provider import YourProvider
+
+_REGISTRY = {
+    ...
+    YourProvider.name: YourProvider(),
+}
+```
+
+3. **Add Metadata** (`services/generate/routes/provider_info.py`)
+```python
+PROVIDER_META = {
+    ...
+    "your_provider": {
+        "display_name": "Your Provider",
+        "description": "Description",
+        "category": "image_generation",
+        "is_free": False,
+        "endpoint": "https://api.example.com",
+    },
+}
+```
+
+### Project Structure
+```
+AestheticsEngine/
+├── frontend/                    # React frontend
+│   ├── src/components/         # UI components
+│   ├── src/hooks/              # Pipeline orchestration
+│   └── src/lib/                # API client
+├── services/
+│   ├── generate/adapters/      # 6 provider implementations
+│   ├── scoring/                # Doubao client + aggregator
+│   ├── pipeline/               # Text2Image/Image2Image
+│   ├── selector/               # Best candidate selection
+│   └── reviewer/               # Comparative analysis
+├── gateway/
+│   ├── main.py                 # FastAPI app
+│   └── orchestrator.py         # Routing
+├── prompts/
+│   └── doubao_aesthetic.prompt # Scoring template
+├── logs/                        # JSONL event logs
+└── tests/                       # Backend tests
+```
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ARK_API_KEY` | ✅ | Doubao API key (include "Bearer " prefix) |
+| `HOLISTIC_MODEL` | ✅ | Doubao scoring model ID |
+| `HOLISTIC_PROMPT` | ✅ | Path to scoring prompt template |
+| `DASHSCOPE_API_KEY` | - | Alibaba DashScope (Qwen, Wan) |
+| `OPENROUTER_API_KEY` | - | OpenRouter (DALL-E, Nano Banana) |
+| `OPENROUTER_PROXY_URL` | - | OpenRouter proxy (default: `http://127.0.0.1:7897`) |
+| `VITE_AE_API` | - | Frontend API URL (default: `http://127.0.0.1:8000`) |
+
+### Contributing
+
+We welcome contributions! Please:
+1. Fork and create a feature branch
+2. Follow `CONTRIBUTING.md` guidelines (type hints, async patterns, logging rules)
+3. Run tests: `pytest` + `ruff check .`
+4. Submit PR with clear description
+
+**Multi-AI Collaboration**: This project supports development by multiple AI assistants. See `AGENTS.md` for role definitions.
+
+### License
+
+MIT License © 2024
+
+Contact: alcuinyang@gmail.com
+
+---
+
+## 中文
+
+### 项目概述
+
+AestheticsEngine（美学引擎）是一个**美学模型应用研究平台**，通过多模型图像生成与 AI 驱动的质量评估探索 AIGC 工作流中的关键问题：
+
+- **多模型协调**：并行调用 6+ 图像生成提供商（DALL-E、Qwen、Seedream、Gemini、Stable Diffusion）
+- **客观质量评估**：AI 驱动的 AIGC 特定缺陷检测（解剖错误、伪影、物理违规）
+- **自动选优**：基于对比分析的最优候选识别
+- **研究基础设施**：JSONL 日志、模块化评分、可扩展的提供商架构
+
+### 核心功能
+
+#### 1. 多模型生成管线
+- **文生图管线**：1-4 个提供商并行生成，信号量控制 + 自动重试
+- **图生图管线**：参考图分析 → 提示词融合 → 一致性验证
+- **顺序生成**：Seedream 4.0 单次 API 调用支持最多 15 张图像
+
+#### 2. 美学评估系统
+**主评分器：豆包 Vision**（字节跳动多模态 LLM）
+- 5 个 AIGC 专属维度 + 综合评分（1-10 分制）
+- 结构化 JSON 输出 + 中文评论
+- 否决机制：解剖错误自动限制最终得分上限
+
+**评分维度**：
+| 维度 | 内部键 | 说明 |
+|------|--------|------|
+| 语义忠实度 | `quality_score` | 提示词还原度 |
+| 结构合理性 | `clarity_eval` | 解剖完整性（手部、面部） |
+| 物理逻辑 | `contrast_score` | 光影、透视准确性 |
+| 画面纯净度 | `noise_eval` | 伪影、噪点、乱码文字 |
+| 艺术美感 | `color_score` | 构图、色彩协调性 |
+| 综合评分 | `holistic` | 加权平均值 |
+
+**评分公式**：
+```
+final_score = 0.3 × 解剖完整性
+            + 0.3 × 语义忠实度
+            + 0.2 × 艺术美感
+            + 0.2 × 画面纯净度
+
+若 解剖完整性 < 6.0：
+    final_score = min(final_score, 5.0)  # 否决机制
+```
+
+**降级策略**：豆包 Vision → MNet 综合评分 → 占位模块
+
+#### 3. 对比点评
+- AI 生成的最优/最差候选对比解释
+- 基于具体评分的证据分析
+- 上下文感知提示词（艺术 vs 商业）
+
+#### 4. 提供商生态
+
+| 提供商 | 模型 | API | 能力 |
+|--------|------|-----|------|
+| DALL-E | GPT-5-Image | OpenRouter | 文生图 |
+| Nano Banana | Gemini-3-Pro-Image | OpenRouter | 文生图、图生图 |
+| Qwen | Qwen-Image | DashScope | 文生图、图生图 |
+| Wan | 通义万相 2.5 | DashScope | 文生图、图生图 |
+| Seedream | Seedream 4.0 | ARK | 文生图、图生图、顺序生成 |
+| Stable Diffusion | SDXL | 自托管 | 文生图 |
+
+### 快速开始
+
+#### 环境要求
+- Python 3.10+
+- Node.js 20.19+
+- API 密钥：至少需要 `ARK_API_KEY`（评分）+ 一个生成提供商
+
+#### 后端启动
+```bash
+git clone https://github.com/AlcuinYang/AestheticsEngine.git
+cd AestheticsEngine
+
+python3.10 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+pip install -e .[dev]
+
+# 必需：豆包评分
+export ARK_API_KEY="Bearer YOUR_DOUBAO_KEY"
+export HOLISTIC_MODEL="doubao-seed-1-6-vision-250815"
+export HOLISTIC_PROMPT="prompts/doubao_aesthetic.prompt"
+
+# 可选：生成提供商
+export DASHSCOPE_API_KEY="sk-YOUR_DASHSCOPE_KEY"    # Qwen、Wan
+export OPENROUTER_API_KEY="sk-YOUR_OPENROUTER_KEY"  # DALL-E、Nano Banana
+
+uvicorn gateway.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+API 文档：http://localhost:8000/docs
+
+#### 前端启动
+```bash
+cd frontend
+npm install
+npm run dev  # http://localhost:5173
+```
+
+可选：设置 `VITE_AE_API=http://localhost:8000` 指定后端地址
+
+### 使用示例
+
+#### 文生图 API
+```bash
+curl -X POST http://localhost:8000/v1/pipeline/text2image \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "宁静的日本庭院，樱花盛开",
+    "providers": ["dalle", "qwen", "nano_banana"],
+    "num_candidates": 3,
+    "params": {"ratio": "16:9"}
+  }'
+```
+
+**响应示例**：
+```json
+{
+  "best_image_url": "data:image/png;base64,...",
+  "best_provider": "dalle",
+  "candidates": [
+    {
+      "provider": "dalle",
+      "image_url": "...",
+      "composite_score": 0.87,
+      "scores": {
+        "quality_score": 0.9,
+        "clarity_eval": 0.85,
+        "contrast_score": 0.88,
+        "noise_eval": 0.92,
+        "color_score": 0.83,
+        "holistic": 0.87
+      },
+      "comments": {
+        "quality_score": "提示词还原度高",
+        "clarity_eval": "结构完整无缺陷",
+        ...
+      }
+    }
+  ],
+  "review": "图像 A 在构图（9.0分）上明显优于图像 B（6.8分）..."
+}
+```
+
+### 开发指南
+
+#### 测试
+```bash
+# 后端
+pytest                                                   # 全部测试
+pytest tests/test_pipeline_endpoint.py -v               # 管线测试
+ruff check .                                             # 代码检查
+
+# 前端
+cd frontend
+npm run lint                                             # ESLint
+npm run build                                            # 生产构建
+```
+
+#### 日志监控
+```bash
+tail -f logs/doubao_events.jsonl | jq '.'     # 豆包 API 调用
+tail -f logs/pipeline_runs.jsonl | jq '.'     # 管线执行
+```
+
+### 添加新提供商
+
+**三步流程**：
+
+1. **创建适配器** (`services/generate/adapters/your_provider.py`)
+```python
+from services.generate.adapters.base import BaseProvider
+from services.generate.models import GenerateRequestPayload
+
+class YourProvider(BaseProvider):
+    name = "your_provider"
+
+    async def generate(self, request: GenerateRequestPayload):
+        # 实现逻辑
+        return {"status": "success", "images": [...], "metadata": {...}}
+```
+
+2. **注册** (`services/generate/__init__.py`)
+```python
+from services.generate.adapters.your_provider import YourProvider
+
+_REGISTRY = {
+    ...
+    YourProvider.name: YourProvider(),
+}
+```
+
+3. **添加元数据** (`services/generate/routes/provider_info.py`)
+```python
+PROVIDER_META = {
+    ...
+    "your_provider": {
+        "display_name": "你的提供商",
+        "description": "描述信息",
+        "category": "image_generation",
+        "is_free": False,
+        "endpoint": "https://api.example.com",
+    },
+}
+```
+
+### 项目结构
+```
+AestheticsEngine/
+├── frontend/                    # React 前端
+│   ├── src/components/         # UI 组件
+│   ├── src/hooks/              # 管线编排
+│   └── src/lib/                # API 客户端
+├── services/
+│   ├── generate/adapters/      # 6 个提供商实现
+│   ├── scoring/                # 豆包客户端 + 聚合器
+│   ├── pipeline/               # 文生图/图生图
+│   ├── selector/               # 最优候选选择
+│   └── reviewer/               # 对比分析
+├── gateway/
+│   ├── main.py                 # FastAPI 应用
+│   └── orchestrator.py         # 路由
+├── prompts/
+│   └── doubao_aesthetic.prompt # 评分模板
+├── logs/                        # JSONL 事件日志
+└── tests/                       # 后端测试
+```
+
+### 环境变量
+
+| 变量 | 必需 | 说明 |
+|------|------|------|
+| `ARK_API_KEY` | ✅ | 豆包 API 密钥（需包含 "Bearer " 前缀） |
+| `HOLISTIC_MODEL` | ✅ | 豆包评分模型 ID |
+| `HOLISTIC_PROMPT` | ✅ | 评分提示词模板路径 |
+| `DASHSCOPE_API_KEY` | - | 阿里云 DashScope（Qwen、Wan） |
+| `OPENROUTER_API_KEY` | - | OpenRouter（DALL-E、Nano Banana） |
+| `OPENROUTER_PROXY_URL` | - | OpenRouter 代理（默认：`http://127.0.0.1:7897`） |
+| `VITE_AE_API` | - | 前端 API 地址（默认：`http://127.0.0.1:8000`） |
+
+### 贡献指南
+
+欢迎贡献！请：
+1. Fork 并创建功能分支
+2. 遵循 `CONTRIBUTING.md` 指南（类型注解、异步模式、日志规则）
+3. 运行测试：`pytest` + `ruff check .`
+4. 提交清晰描述的 PR
+
+**多 AI 协作**：本项目支持多个 AI 助手协同开发。详见 `AGENTS.md`。
+
+### 许可证
+
+MIT License © 2024
+
+联系方式：alcuinyang@gmail.com
+
+---
+
+## Documentation
+
+- 📖 [完整文档](doc/项目完整文档.md) - Comprehensive Chinese documentation
+- 🚀 [Quick Start](QUICKSTART.md) - Fast setup guide
+- 🤝 [Contributing](CONTRIBUTING.md) - Development guidelines
+- 🤖 [AI Collaboration](AGENTS.md) - Multi-AI development guide
+- 📚 [API Docs](http://localhost:8000/docs) - Interactive API documentation (requires running backend)

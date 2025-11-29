@@ -1,15 +1,17 @@
 """Generation provider registry."""
 
+from services.generate.adapters.dalle import DalleProvider
 from services.generate.adapters.doubao_seedream import DoubaoSeedreamProvider
 from services.generate.adapters.nano_banana import NanoBananaProvider
 from services.generate.adapters.qwen import QwenProvider
-from services.generate.adapters.wan import WanProvider
 from services.generate.adapters.stable_diffusion import StableDiffusionProvider
+from services.generate.adapters.wan import WanProvider
 
 _REGISTRY = {
     QwenProvider.name: QwenProvider(),
     WanProvider.name: WanProvider(),
     NanoBananaProvider.name: NanoBananaProvider(),
+    DalleProvider.name: DalleProvider(),
     StableDiffusionProvider.name: StableDiffusionProvider(),
     DoubaoSeedreamProvider.name: DoubaoSeedreamProvider(),
 }

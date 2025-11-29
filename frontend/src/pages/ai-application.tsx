@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 
 const CameraIcon = ({ className }: { className?: string }) => (
@@ -66,7 +66,9 @@ const tools = [
   },
 ] as const;
 
-const LiquidCard = ({ tool }: { tool: (typeof tools)[0] }) => {
+type Tool = typeof tools[number];
+
+const LiquidCard = ({ tool }: { tool: Tool }) => {
   const isPurple = tool.theme === "purple";
 
   return (

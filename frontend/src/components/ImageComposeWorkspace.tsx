@@ -24,7 +24,7 @@ const RATIO_SIZE_MAP = RATIO_OPTIONS.reduce<Record<string, string>>((acc, item) 
 
 const DEFAULT_RATIO = "1:1";
 
-const PROVIDER_WHITELIST = new Set(["wan", "doubao_seedream"]);
+const PROVIDER_WHITELIST = new Set(["wan", "doubao_seedream", "dalle", "nano_banana"]);
 
 const AESTHETIC_MODELS = [
   { id: "mnet_v1", name: "MNet V1", description: "多维度美学评分模型" },
@@ -109,6 +109,28 @@ export function ImageComposeWorkspace() {
             is_active: true,
             icon: null,
             endpoint: "https://www.doubao.com/seeds/dream",
+            latency_ms: null,
+          },
+          {
+            id: "dalle",
+            display_name: "DALL-E",
+            description: "OpenAI GPT-5 Image via OpenRouter",
+            category: "image_generation",
+            is_free: false,
+            is_active: true,
+            icon: null,
+            endpoint: "https://openrouter.ai",
+            latency_ms: null,
+          },
+          {
+            id: "nano_banana",
+            display_name: "Nano Banana",
+            description: "Google Gemini 3 Pro Image via OpenRouter",
+            category: "image_generation",
+            is_free: false,
+            is_active: true,
+            icon: null,
+            endpoint: "https://openrouter.ai",
             latency_ms: null,
           },
         ];

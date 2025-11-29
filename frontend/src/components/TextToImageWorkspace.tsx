@@ -42,7 +42,7 @@ export function TextToImageWorkspace() {
       .then((data) => {
         if (!mounted) return;
 
-        const allowedIds = new Set(["wan", "doubao_seedream"]);
+        const allowedIds = new Set(["wan", "doubao_seedream", "dalle", "nano_banana"]);
         const filtered = data.filter((item) => allowedIds.has(item.id));
 
         const fallbackProviders: ProviderInfo[] = [
@@ -66,6 +66,28 @@ export function TextToImageWorkspace() {
             is_active: true,
             icon: null,
             endpoint: "https://www.doubao.com/seeds/dream",
+            latency_ms: null,
+          },
+          {
+            id: "dalle",
+            display_name: "DALL-E",
+            description: "OpenAI GPT-5 Image via OpenRouter",
+            category: "image_generation",
+            is_free: false,
+            is_active: true,
+            icon: null,
+            endpoint: "https://openrouter.ai",
+            latency_ms: null,
+          },
+          {
+            id: "nano_banana",
+            display_name: "Nano Banana",
+            description: "Google Gemini 3 Pro Image via OpenRouter",
+            category: "image_generation",
+            is_free: false,
+            is_active: true,
+            icon: null,
+            endpoint: "https://openrouter.ai",
             latency_ms: null,
           },
         ];
